@@ -1,1 +1,1311 @@
+<!DOCTYPE html>
+<html lang="en">
 
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>My AI Assistant</title>
+
+    <meta
+        name="description"
+        content="My AI Assistant is a personal AI chatbot — chat, upload PDFs and images, and get instant answers from your own knowledge base."
+    >
+
+    <link
+        rel="icon"
+        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'%3E%3Cline x1='30' y1='6' x2='30' y2='20'/%3E%3Cline x1='50' y1='6' x2='50' y2='20'/%3E%3Cline x1='70' y1='6' x2='70' y2='20'/%3E%3Cline x1='30' y1='80' x2='30' y2='94'/%3E%3Cline x1='50' y1='80' x2='50' y2='94'/%3E%3Cline x1='70' y1='80' x2='70' y2='94'/%3E%3Cline x1='6' y1='30' x2='20' y2='30'/%3E%3Cline x1='6' y1='50' x2='20' y2='50'/%3E%3Cline x1='6' y1='70' x2='20' y2='70'/%3E%3Cline x1='80' y1='30' x2='94' y2='30'/%3E%3Cline x1='80' y1='50' x2='94' y2='50'/%3E%3Cline x1='80' y1='70' x2='94' y2='70'/%3E%3C/g%3E%3Crect x='20' y='20' width='60' height='60' rx='10' fill='%230b0f14' stroke='%2300e5ff' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='10' fill='none' stroke='%2300e5ff' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='4' fill='%2339ff8c'/%3E%3Cline x1='50' y1='32' x2='50' y2='40' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='50' y1='60' x2='50' y2='68' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='32' y1='50' x2='40' y2='50' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='60' y1='50' x2='68' y2='50' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E"
+    >
+
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        /* =========================================================
+           AUTHENTICATION SCREEN
+           ========================================================= */
+
+        .auth-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            background:
+                radial-gradient(
+                    circle at top,
+                    rgba(0, 229, 255, 0.12),
+                    transparent 45%
+                ),
+                radial-gradient(
+                    circle at bottom,
+                    rgba(57, 255, 140, 0.08),
+                    transparent 50%
+                ),
+                #05070a;
+
+            padding: 20px;
+        }
+
+        .auth-card {
+            width: 100%;
+            max-width: 420px;
+
+            background: #0d1117;
+
+            border: 1px solid rgba(0, 229, 255, 0.25);
+            border-radius: 18px;
+
+            padding: 34px;
+
+            box-shadow:
+                0 0 40px rgba(0, 229, 255, 0.08),
+                0 20px 50px rgba(0, 0, 0, 0.4);
+        }
+
+        .auth-logo {
+            width: 52px;
+            height: 52px;
+
+            margin: 0 auto 18px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            border-radius: 14px;
+
+            background: #05070a;
+            border: 1px solid rgba(0, 229, 255, 0.3);
+            color: #ffffff;
+
+            font-size: 25px;
+        }
+
+        .auth-title {
+            margin: 0;
+
+            text-align: center;
+
+            font-size: 25px;
+            font-weight: 700;
+
+            color: #eaf6ff;
+        }
+
+        .auth-subtitle {
+            margin: 8px 0 28px;
+
+            text-align: center;
+
+            font-size: 14px;
+
+            color: #8a97a6;
+        }
+
+        .auth-tabs {
+            display: flex;
+
+            background: #05070a;
+
+            border-radius: 10px;
+
+            padding: 4px;
+
+            margin-bottom: 22px;
+        }
+
+        .auth-tab {
+            flex: 1;
+
+            border: none;
+            background: transparent;
+
+            padding: 10px;
+
+            border-radius: 8px;
+
+            font-size: 14px;
+            font-weight: 600;
+
+            color: #8a97a6;
+
+            cursor: pointer;
+
+            transition: 0.2s;
+        }
+
+        .auth-tab.active {
+            background: #1a2129;
+            color: #00e5ff;
+
+            box-shadow:
+                0 1px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .auth-form {
+            display: none;
+        }
+
+        .auth-form.active {
+            display: block;
+        }
+
+        .auth-label {
+            display: block;
+
+            margin-bottom: 7px;
+
+            font-size: 13px;
+            font-weight: 600;
+
+            color: #b0bac6;
+        }
+
+        .auth-input {
+            width: 100%;
+
+            box-sizing: border-box;
+
+            padding: 12px 13px;
+
+            margin-bottom: 16px;
+
+            border: 1px solid #232b35;
+            border-radius: 9px;
+
+            outline: none;
+
+            font-size: 14px;
+
+            background: #05070a;
+            color: #eaf6ff;
+
+            transition: border-color 0.2s,
+                        box-shadow 0.2s;
+        }
+
+        .auth-input:focus {
+            border-color: #00e5ff;
+
+            box-shadow:
+                0 0 0 3px rgba(0, 229, 255, 0.15);
+        }
+
+        .auth-button {
+            width: 100%;
+
+            border: none;
+
+            padding: 12px;
+
+            border-radius: 9px;
+
+            background: linear-gradient(135deg, #00e5ff, #39ff8c);
+            color: #06110d;
+
+            font-size: 14px;
+            font-weight: 700;
+
+            cursor: pointer;
+
+            transition: 0.2s;
+        }
+
+        .auth-button:hover {
+            filter: brightness(1.1);
+            box-shadow: 0 0 16px rgba(0, 229, 255, 0.45);
+        }
+
+        .auth-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .auth-button + .auth-button {
+            margin-top: 10px;
+        }
+
+        .auth-button-secondary {
+            background: transparent;
+            color: #39ff8c;
+            border: 1px solid #39ff8c;
+        }
+
+        .auth-button-secondary:hover {
+            background: rgba(57, 255, 140, 0.1);
+        }
+
+        .auth-back-btn {
+            border: none;
+            background: transparent;
+
+            margin-bottom: 10px;
+
+            padding: 4px 0;
+
+            font-size: 13px;
+            font-weight: 600;
+
+            color: #6b7280;
+
+            cursor: pointer;
+        }
+
+        .auth-back-btn:hover {
+            color: #00e5ff;
+        }
+
+        .auth-message {
+            min-height: 20px;
+
+            margin-top: 14px;
+
+            text-align: center;
+
+            font-size: 13px;
+
+            line-height: 1.5;
+        }
+
+        .auth-message.error {
+            color: #ff5c6c;
+        }
+
+        .auth-message.success {
+            color: #39ff8c;
+        }
+
+        .auth-footer {
+            margin-top: 25px;
+
+            text-align: center;
+
+            font-size: 12px;
+
+            color: #6b7684;
+        }
+
+        .auth-footer strong {
+            color: #00e5ff;
+        }
+
+        /* =========================================================
+           USER ACCOUNT AREA
+           ========================================================= */
+
+        .user-account {
+            display: flex;
+            align-items: center;
+
+            gap: 10px;
+
+            padding: 10px 12px;
+
+            margin-bottom: 8px;
+
+            border-radius: 10px;
+
+            background: rgba(0, 0, 0, 0.035);
+        }
+
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+
+            flex-shrink: 0;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            border-radius: 50%;
+
+            background: #111827;
+            color: white;
+
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .user-details {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .user-label {
+            font-size: 11px;
+            color: #9ca3af;
+        }
+
+        .user-email {
+            overflow: hidden;
+
+            text-overflow: ellipsis;
+            white-space: nowrap;
+
+            font-size: 12px;
+            color: #374151;
+        }
+
+        .logout-button {
+            border: none;
+
+            background: transparent;
+
+            color: #6b7280;
+
+            cursor: pointer;
+
+            padding: 6px;
+
+            border-radius: 6px;
+
+            font-size: 16px;
+        }
+
+        .logout-button:hover {
+            background: rgba(0, 0, 0, 0.06);
+            color: #111827;
+        }
+
+        /* =========================================================
+           MOBILE AUTH
+           ========================================================= */
+
+        @media (max-width: 480px) {
+
+            .auth-card {
+                padding: 26px 20px;
+
+                border-radius: 15px;
+            }
+
+            .auth-title {
+                font-size: 22px;
+            }
+        }
+
+        /* =========================================================
+           APP VISIBILITY
+           ========================================================= */
+
+        [hidden] {
+            display: none !important;
+        }
+    </style>
+
+</head>
+
+
+<body>
+
+    <!-- =========================================================
+         PUBLIC WELCOME SCREEN
+         (shown first, before any login form — this is what
+         visitors and crawlers see on landing)
+         ========================================================= -->
+
+    <div
+        id="welcomeScreen"
+        class="auth-screen"
+    >
+
+        <div class="auth-card">
+
+            <div class="auth-logo">
+                <svg viewBox="0 0 100 100" width="52" height="52" xmlns="http://www.w3.org/2000/svg">
+                    <g stroke="#39ff8c" stroke-width="3" stroke-linecap="round">
+                        <line x1="30" y1="8" x2="30" y2="20"/>
+                        <line x1="50" y1="8" x2="50" y2="20"/>
+                        <line x1="70" y1="8" x2="70" y2="20"/>
+                        <line x1="30" y1="80" x2="30" y2="92"/>
+                        <line x1="50" y1="80" x2="50" y2="92"/>
+                        <line x1="70" y1="80" x2="70" y2="92"/>
+                        <line x1="8" y1="30" x2="20" y2="30"/>
+                        <line x1="8" y1="50" x2="20" y2="50"/>
+                        <line x1="8" y1="70" x2="20" y2="70"/>
+                        <line x1="80" y1="30" x2="92" y2="30"/>
+                        <line x1="80" y1="50" x2="92" y2="50"/>
+                        <line x1="80" y1="70" x2="92" y2="70"/>
+                    </g>
+                    <rect x="20" y="20" width="60" height="60" rx="10" fill="#0b0f14" stroke="#00e5ff" stroke-width="3"/>
+                    <circle cx="50" cy="50" r="10" fill="none" stroke="#00e5ff" stroke-width="3"/>
+                    <circle cx="50" cy="50" r="3" fill="#39ff8c"/>
+                    <line x1="50" y1="32" x2="50" y2="40" stroke="#39ff8c" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="50" y1="60" x2="50" y2="68" stroke="#39ff8c" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="32" y1="50" x2="40" y2="50" stroke="#39ff8c" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="60" y1="50" x2="68" y2="50" stroke="#39ff8c" stroke-width="3" stroke-linecap="round"/>
+                </svg>
+            </div>
+
+            <h1 class="auth-title">
+                My AI Assistant
+            </h1>
+
+            <p class="auth-subtitle">
+                Your personal AI assistant — chat, upload
+                documents, and get instant answers. Sign in
+                or create a free account to get started.
+            </p>
+
+            <button
+                type="button"
+                class="auth-button"
+                onclick="openAuthScreen('login')"
+            >
+                Log In
+            </button>
+
+            <button
+                type="button"
+                class="auth-button auth-button-secondary"
+                onclick="openAuthScreen('signup')"
+            >
+                Create Account
+            </button>
+
+            <div class="auth-footer">
+                AI Assistant created by <strong>praphul</strong>
+                <br>
+                A personal AI chatbot project — chat,
+                upload documents, and get instant answers.
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         AUTHENTICATION SCREEN
+         (only shown after the visitor chooses Log In /
+         Create Account above)
+         ========================================================= -->
+
+    <div
+        id="authScreen"
+        class="auth-screen"
+        hidden
+    >
+
+        <div class="auth-card">
+
+            <button
+                type="button"
+                class="auth-back-btn"
+                onclick="backToWelcome()"
+            >
+                ← Back
+            </button>
+
+            <div class="auth-logo">
+                <svg viewBox="0 0 100 100" width="52" height="52" xmlns="http://www.w3.org/2000/svg">
+                    <g stroke="#39ff8c" stroke-width="3" stroke-linecap="round">
+                        <line x1="30" y1="8" x2="30" y2="20"/>
+                        <line x1="50" y1="8" x2="50" y2="20"/>
+                        <line x1="70" y1="8" x2="70" y2="20"/>
+                        <line x1="30" y1="80" x2="30" y2="92"/>
+                        <line x1="50" y1="80" x2="50" y2="92"/>
+                        <line x1="70" y1="80" x2="70" y2="92"/>
+                        <line x1="8" y1="30" x2="20" y2="30"/>
+                        <line x1="8" y1="50" x2="20" y2="50"/>
+                        <line x1="8" y1="70" x2="20" y2="70"/>
+                        <line x1="80" y1="30" x2="92" y2="30"/>
+                        <line x1="80" y1="50" x2="92" y2="50"/>
+                        <line x1="80" y1="70" x2="92" y2="70"/>
+                    </g>
+                    <rect x="20" y="20" width="60" height="60" rx="10" fill="#0b0f14" stroke="#00e5ff" stroke-width="3"/>
+                    <circle cx="50" cy="50" r="10" fill="none" stroke="#00e5ff" stroke-width="3"/>
+                    <circle cx="50" cy="50" r="3" fill="#39ff8c"/>
+                    <line x1="50" y1="32" x2="50" y2="40" stroke="#39ff8c" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="50" y1="60" x2="50" y2="68" stroke="#39ff8c" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="32" y1="50" x2="40" y2="50" stroke="#39ff8c" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="60" y1="50" x2="68" y2="50" stroke="#39ff8c" stroke-width="3" stroke-linecap="round"/>
+                </svg>
+            </div>
+
+            <h1 class="auth-title">
+                My AI Assistant
+            </h1>
+
+            <p class="auth-subtitle">
+                Sign in to continue to your AI assistant
+            </p>
+
+
+            <!-- Login / Signup tabs -->
+
+            <div class="auth-tabs">
+
+                <button
+                    type="button"
+                    id="loginTab"
+                    class="auth-tab active"
+                    onclick="showAuthForm('login')"
+                >
+                    Login
+                </button>
+
+                <button
+                    type="button"
+                    id="signupTab"
+                    class="auth-tab"
+                    onclick="showAuthForm('signup')"
+                >
+                    Create Account
+                </button>
+
+            </div>
+
+
+            <!-- =================================================
+                 LOGIN FORM
+                 ================================================= -->
+
+            <form
+                id="loginForm"
+                class="auth-form active"
+                onsubmit="loginUser(event)"
+            >
+
+                <label
+                    class="auth-label"
+                    for="loginEmail"
+                >
+                    Email
+                </label>
+
+                <input
+                    id="loginEmail"
+                    class="auth-input"
+                    type="email"
+                    placeholder="Enter your email"
+                    autocomplete="email"
+                    required
+                >
+
+
+                <label
+                    class="auth-label"
+                    for="loginPassword"
+                >
+                    Password
+                </label>
+
+                <input
+                    id="loginPassword"
+                    class="auth-input"
+                    type="password"
+                    placeholder="Enter your password"
+                    autocomplete="current-password"
+                    required
+                >
+
+
+                <button
+                    id="loginButton"
+                    class="auth-button"
+                    type="submit"
+                >
+                    Login
+                </button>
+
+            </form>
+
+
+            <!-- =================================================
+                 SIGNUP FORM
+                 ================================================= -->
+
+            <form
+                id="signupForm"
+                class="auth-form"
+                onsubmit="signupUser(event)"
+            >
+
+                <label
+                    class="auth-label"
+                    for="signupEmail"
+                >
+                    Email
+                </label>
+
+                <input
+                    id="signupEmail"
+                    class="auth-input"
+                    type="email"
+                    placeholder="Enter your email"
+                    autocomplete="email"
+                    required
+                >
+
+
+                <label
+                    class="auth-label"
+                    for="signupPassword"
+                >
+                    Password
+                </label>
+
+                <input
+                    id="signupPassword"
+                    class="auth-input"
+                    type="password"
+                    placeholder="Create a password"
+                    autocomplete="new-password"
+                    minlength="6"
+                    required
+                >
+
+
+                <label
+                    class="auth-label"
+                    for="signupConfirmPassword"
+                >
+                    Confirm Password
+                </label>
+
+                <input
+                    id="signupConfirmPassword"
+                    class="auth-input"
+                    type="password"
+                    placeholder="Confirm your password"
+                    autocomplete="new-password"
+                    minlength="6"
+                    required
+                >
+
+
+                <button
+                    id="signupButton"
+                    class="auth-button"
+                    type="submit"
+                >
+                    Create Account
+                </button>
+
+            </form>
+
+
+            <!-- Authentication message -->
+
+            <div
+                id="authMessage"
+                class="auth-message"
+            ></div>
+
+
+            <div class="auth-footer">
+                AI Assistant created by <strong>praphul</strong>
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         MAIN APPLICATION
+         ========================================================= -->
+
+    <div
+        id="appShell"
+        class="app"
+        hidden
+    >
+
+        <!-- =====================================================
+             SIDEBAR
+             ===================================================== -->
+
+        <aside class="sidebar">
+
+            <div class="sidebar-top">
+
+                <div class="brand">
+                    <div class="brand-icon">
+                        🤖
+                    </div>
+
+                    <div class="brand-text">
+                        My AI Assistant
+                    </div>
+                </div>
+
+
+                <button
+                    class="new-chat-btn"
+                    onclick="newChat()"
+                >
+                    <span>＋</span>
+                    <span>New Chat</span>
+                </button>
+
+
+                <nav class="sidebar-nav">
+
+                    <button
+                        class="nav-item active"
+                        onclick="showSection('chat')"
+                    >
+                        <span class="nav-icon">💬</span>
+                        <span>Chat</span>
+                    </button>
+
+
+                    <button
+                        class="nav-item"
+                        onclick="showSection('history')"
+                    >
+                        <span class="nav-icon">🕘</span>
+                        <span>Chat History</span>
+                    </button>
+
+
+                    <button
+                        class="nav-item"
+                        onclick="showSection('documents')"
+                    >
+                        <span class="nav-icon">📄</span>
+                        <span>Documents</span>
+                    </button>
+
+
+                    <button
+                        class="nav-item"
+                        onclick="showSection('vision')"
+                    >
+                        <span class="nav-icon">◉</span>
+                        <span>Vision</span>
+                    </button>
+
+
+                    <button
+                        class="nav-item"
+                        onclick="showSection('hardware')"
+                    >
+                        <span class="nav-icon">⚙</span>
+                        <span>Hardware</span>
+                    </button>
+
+
+                    <button
+                        class="nav-item"
+                        onclick="showSection('settings')"
+                    >
+                        <span class="nav-icon">⚙</span>
+                        <span>Settings</span>
+                    </button>
+
+                </nav>
+
+            </div>
+
+
+            <!-- =================================================
+                 SIDEBAR BOTTOM
+                 ================================================= -->
+
+            <div class="sidebar-bottom">
+
+                <!-- User account -->
+
+                <div class="user-account">
+
+                    <div
+                        id="userAvatar"
+                        class="user-avatar"
+                    >
+                        U
+                    </div>
+
+                    <div class="user-details">
+
+                        <div class="user-label">
+                            Signed in as
+                        </div>
+
+                        <div
+                            id="userEmail"
+                            class="user-email"
+                        >
+                            User
+                        </div>
+
+                    </div>
+
+
+                    <button
+                        class="logout-button"
+                        onclick="logoutUser()"
+                        title="Logout"
+                    >
+                        ↪
+                    </button>
+
+                </div>
+
+
+                <div class="sidebar-footer">
+                    <div>
+                        created by praphul
+                    </div>
+
+                    <div class="online-status">
+                        <span class="status-dot"></span>
+                        Online
+                    </div>
+                </div>
+
+            </div>
+
+        </aside>
+
+
+        <!-- =====================================================
+             MOBILE SIDEBAR OVERLAY
+             (click outside the sidebar to close it on phone)
+             ===================================================== -->
+
+        <div
+            id="sidebarOverlay"
+            class="sidebar-overlay"
+            onclick="closeSidebar()"
+        ></div>
+
+
+        <!-- =====================================================
+             MAIN CONTENT
+             ===================================================== -->
+
+        <main class="main-content">
+
+            <!-- TOP BAR -->
+
+            <header class="topbar">
+
+                <!-- Hamburger: only visible on mobile widths (see CSS) -->
+
+                <button
+                    class="mobile-menu-button"
+                    onclick="toggleSidebar()"
+                    aria-label="Open menu"
+                    title="Menu"
+                >
+                    ☰
+                </button>
+
+
+                <div class="page-heading">
+
+                    <h2 id="pageTitle">
+                        AI Chat
+                    </h2>
+
+                    <p id="pageSubtitle">
+                        Your personal AI assistant
+                    </p>
+
+                </div>
+
+            </header>
+
+
+            <!-- =================================================
+                 CHAT SECTION
+                 ================================================= -->
+
+            <section
+                id="chatSection"
+                class="content-section active"
+            >
+
+                <div
+                    id="chatbox"
+                    class="chatbox"
+                >
+
+                    <div class="welcome-message">
+
+                        <div class="welcome-icon">
+                            <img
+                                src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'%3E%3Cline x1='30' y1='6' x2='30' y2='20'/%3E%3Cline x1='50' y1='6' x2='50' y2='20'/%3E%3Cline x1='70' y1='6' x2='70' y2='20'/%3E%3Cline x1='30' y1='80' x2='30' y2='94'/%3E%3Cline x1='50' y1='80' x2='50' y2='94'/%3E%3Cline x1='70' y1='80' x2='70' y2='94'/%3E%3Cline x1='6' y1='30' x2='20' y2='30'/%3E%3Cline x1='6' y1='50' x2='20' y2='50'/%3E%3Cline x1='6' y1='70' x2='20' y2='70'/%3E%3Cline x1='80' y1='30' x2='94' y2='30'/%3E%3Cline x1='80' y1='50' x2='94' y2='50'/%3E%3Cline x1='80' y1='70' x2='94' y2='70'/%3E%3C/g%3E%3Crect x='20' y='20' width='60' height='60' rx='10' fill='%230b0f14' stroke='%2300e5ff' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='10' fill='none' stroke='%2300e5ff' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='4' fill='%2339ff8c'/%3E%3Cline x1='50' y1='32' x2='50' y2='40' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='50' y1='60' x2='50' y2='68' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='32' y1='50' x2='40' y2='50' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='60' y1='50' x2='68' y2='50' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E"
+                                alt="AI logo"
+                                width="56"
+                                height="56"
+                            >
+                        </div>
+
+                        <h2>
+                            How can I help you?
+                        </h2>
+
+                        <p>
+                            Ask me anything or upload a document
+                            to work with your knowledge base.
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <!-- CHAT COMPOSER -->
+
+                <div class="composer-container">
+
+                    <div
+                        id="attachmentMenu"
+                        class="attachment-menu"
+                    >
+
+                        <button
+                            type="button"
+                            class="attachment-option"
+                            onclick="selectPDF()"
+                        >
+                            📄
+                            <span>Upload PDF</span>
+                        </button>
+
+
+                        <button
+                            type="button"
+                            class="attachment-option"
+                            onclick="selectImage()"
+                        >
+                            🖼
+                            <span>Upload Image</span>
+                        </button>
+
+
+                        <button
+                            type="button"
+                            class="attachment-option"
+                            onclick="showSection('hardware')"
+                        >
+                            ⚙
+                            <span>Hardware</span>
+                        </button>
+
+                    </div>
+
+
+                    <div class="composer-box">
+
+                        <button
+                            type="button"
+                            class="attachment-btn"
+                            onclick="toggleAttachmentMenu()"
+                            title="Attachments"
+                        >
+                            ＋
+                        </button>
+
+
+                        <textarea
+                            id="userInput"
+                            placeholder="Message My AI Assistant..."
+                            rows="1"
+                        ></textarea>
+
+
+                        <button
+                            id="sendButton"
+                            type="button"
+                            class="send-btn"
+                            onclick="sendMessage()"
+                            title="Send"
+                        >
+                            ↑
+                        </button>
+
+                    </div>
+
+
+                    <input
+                        id="pdfInput"
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        hidden
+                    >
+
+
+                    <input
+                        id="imageInput"
+                        type="file"
+                        accept="image/*"
+                        hidden
+                    >
+
+
+                    <div
+                        id="uploadStatus"
+                        class="upload-status"
+                    ></div>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 HISTORY SECTION
+                 ================================================= -->
+
+            <section
+                id="historySection"
+                class="content-section"
+            >
+
+                <div class="section-header">
+
+                    <div>
+                        <h2>Chat History</h2>
+
+                        <p>
+                            Your previous conversations
+                        </p>
+                    </div>
+
+
+                    <button
+                        class="danger-btn"
+                        onclick="clearChatHistory()"
+                    >
+                        Clear History
+                    </button>
+
+                </div>
+
+
+                <div
+                    id="historyList"
+                    class="history-list"
+                ></div>
+
+            </section>
+
+
+            <!-- =================================================
+                 DOCUMENTS SECTION
+                 ================================================= -->
+
+            <section
+                id="documentsSection"
+                class="content-section"
+            >
+
+                <div class="section-header">
+
+                    <div>
+
+                        <h2>
+                            Documents
+                        </h2>
+
+                        <p>
+                            Upload PDFs for your AI knowledge base
+                        </p>
+
+                    </div>
+
+
+                    <button
+                        class="primary-btn"
+                        onclick="selectPDF()"
+                    >
+                        + Upload PDF
+                    </button>
+
+                </div>
+
+
+                <div class="documents-container">
+
+                    <div class="empty-state">
+
+                        <div class="empty-icon">
+                            📄
+                        </div>
+
+                        <h3>
+                            Your documents
+                        </h3>
+
+                        <p>
+                            Upload a PDF to add it to the
+                            chatbot's knowledge base.
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 VISION SECTION
+                 ================================================= -->
+
+            <section
+                id="visionSection"
+                class="content-section"
+            >
+
+                <div class="section-header">
+
+                    <div>
+
+                        <h2>
+                            Vision
+                        </h2>
+
+                        <p>
+                            Image understanding
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="empty-state">
+
+                    <div class="empty-icon">
+                        🖼
+                    </div>
+
+                    <h3>
+                        Vision coming soon
+                    </h3>
+
+                    <p>
+                        Image analysis will be connected
+                        in the next development stage.
+                    </p>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 HARDWARE SECTION
+                 ================================================= -->
+
+            <section
+                id="hardwareSection"
+                class="content-section"
+            >
+
+                <div class="section-header">
+
+                    <div>
+
+                        <h2>
+                            Hardware
+                        </h2>
+
+                        <p>
+                            Connect your AI assistant to hardware
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="empty-state">
+
+                    <div class="empty-icon">
+                        ⚙
+                    </div>
+
+                    <h3>
+                        Hardware integration
+                    </h3>
+
+                    <p>
+                        ESP32 and hardware control will be
+                        connected in a later stage.
+                    </p>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 SETTINGS SECTION
+                 ================================================= -->
+
+            <section
+                id="settingsSection"
+                class="content-section"
+            >
+
+                <div class="section-header">
+
+                    <div>
+
+                        <h2>
+                            Settings
+                        </h2>
+
+                        <p>
+                            Manage your assistant
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="empty-state">
+
+                    <div class="empty-icon">
+                        ⚙
+                    </div>
+
+                    <h3>
+                        Settings coming soon
+                    </h3>
+
+                    <p>
+                        Account and assistant settings
+                        will be added here.
+                    </p>
+
+                </div>
+
+            </section>
+
+        </main>
+
+    </div>
+
+
+    <!-- =========================================================
+         YOUR EXISTING JAVASCRIPT
+         ========================================================= -->
+
+    <script src="script.js"></script>
+
+</body>
+
+</html>
