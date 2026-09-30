@@ -1,480 +1,1268 @@
 /* =========================================================
    MY AI ASSISTANT
-   Authentication + Chatbot + PDF/RAG + Supabase History
-   FIXED AUTHENTICATION VERSION
+   Frontend JavaScript
+   Supabase Auth + Render FastAPI + Groq + Per-user RAG
    ========================================================= */
 
 
 /* =========================================================
-   1. SUPABASE
+   CONFIGURATION
    ========================================================= */
 
-const SUPABASE_URL =
-    "https://jjuuilevlddifxoitffp.supabase.co";
+const SUPABASE_URL = "https://jjuuilevlddifxoitffp.supabase.co";
 
 const SUPABASE_PUBLISHABLE_KEY =
     "sb_publishable_eQFWdaObL0JtrBmkwqJ_sw_lzbtjt-I";
-
-const supabaseClient =
-    window.supabase.createClient(
-        SUPABASE_URL,
-        SUPABASE_PUBLISHABLE_KEY
-    );
-
-
-/* =========================================================
-   2. BACKEND
-   ========================================================= */
 
 const BACKEND_URL =
     "https://ai-chatbot-website-zlqu.onrender.com";
 
 
 /* =========================================================
-   3. AUTH TOKEN
+   SUPABASE CLIENT
    ========================================================= */
 
-/*
-   VERY IMPORTANT:
+const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+);
 
-   SUPABASE_PUBLISHABLE_KEY is only used to create the
-   Supabase client.
 
-   It MUST NEVER be sent as:
+/* =========================================================
+   GLOBAL VARIABLES
+   ========================================================= */
 
-       Authorization: Bearer sb_publishable_...
+let currentUser = null;
+let currentSection = "chat";
+let isSending = false;
 
-   The backend needs the logged-in user's ACCESS TOKEN:
 
-       Authorization: Bearer <user access token>
-*/
+/* =========================================================
+   DOM HELPERS
+   ========================================================= */
 
+function $(id) {
+    return document.getElementById(id);
+}
+
+
+/* =========================================================
+   PAGE INITIALIZATION
+   ========================================================= */
+
+document.addEventListener("DOMContentLoaded", async () => {
+
+    console.log("=================================");
+    console.log("My AI Assistant starting...");
+    console.log("Supabase:", SUPABASE_URL);
+    console.log("Backend:", BACKEND_URL);
+    console.log("=================================");
+
+    setupInputEvents();
+
+    await checkInitialSession();
+
+    setupAuthListener();
+});
+
+
+/* =========================================================
+   INITIAL SESSION CHECK
+   ========================================================= */
+
+async function checkInitialSession() {
+
+    try {
+
+        const { data, error } =
+            await supabaseClient.auth.getSession();
+
+        if (error) {
+            console.error("Session error:", error);
+            showLoggedOutState();
+            return;
+        }
+
+        const session = data?.session;
+
+        if (session?.user) {
+
+            console.log(
+                "Existing session found:",
+                session.user.email
+            );
+
+            await handleLoggedInUser(session.user);
+
+        } else {
+
+            console.log("No active session.");
+
+            showLoggedOutState();
+        }
+
+    } catch (error) {
+
+        console.error(
+            "Initial session check failed:",
+            error
+        );
+
+        showLoggedOutState();
+    }
+}
+
+
+/* =========================================================
+   AUTH STATE LISTENER
+   ========================================================= */
+
+function setupAuthListener() {
+
+    supabaseClient.auth.onAuthStateChange(
+        async (event, session) => {
+
+            console.log(
+                "Auth event:",
+                event
+            );
+
+            if (session?.user) {
+
+                currentUser = session.user;
+
+                await handleLoggedInUser(
+                    session.user
+                );
+
+            } else {
+
+                currentUser = null;
+
+                showLoggedOutState();
+            }
+        }
+    );
+}
+
+
+/* =========================================================
+   HANDLE LOGGED-IN USER
+   ========================================================= */
+
+async function handleLoggedInUser(user) {
+
+    currentUser = user;
+
+    console.log(
+        "Logged in user:",
+        user.email
+    );
+
+    updateUserAccountUI(user);
+
+    hideAuthScreens();
+
+    $("appShell").hidden = false;
+
+    showSection("chat");
+
+    loadLocalHistory();
+
+    await loadDocumentsList();
+}
+
+
+/* =========================================================
+   LOGGED-OUT STATE
+   ========================================================= */
+
+function showLoggedOutState() {
+
+    currentUser = null;
+
+    if ($("appShell")) {
+        $("appShell").hidden = true;
+    }
+
+    if ($("authScreen")) {
+        $("authScreen").hidden = true;
+    }
+
+    if ($("welcomeScreen")) {
+        $("welcomeScreen").hidden = false;
+    }
+}
+
+
+/* =========================================================
+   HIDE AUTH SCREENS
+   ========================================================= */
+
+function hideAuthScreens() {
+
+    if ($("welcomeScreen")) {
+        $("welcomeScreen").hidden = true;
+    }
+
+    if ($("authScreen")) {
+        $("authScreen").hidden = true;
+    }
+}
+
+
+/* =========================================================
+   WELCOME / AUTH SCREEN
+   ========================================================= */
+
+function openAuthScreen(mode = "login") {
+
+    if ($("welcomeScreen")) {
+        $("welcomeScreen").hidden = true;
+    }
+
+    if ($("authScreen")) {
+        $("authScreen").hidden = false;
+    }
+
+    showAuthForm(mode);
+
+    clearAuthMessage();
+}
+
+
+function backToWelcome() {
+
+    if ($("authScreen")) {
+        $("authScreen").hidden = true;
+    }
+
+    if ($("welcomeScreen")) {
+        $("welcomeScreen").hidden = false;
+    }
+
+    clearAuthMessage();
+}
+
+
+/* =========================================================
+   AUTH TABS
+   ========================================================= */
+
+function showAuthForm(type) {
+
+    const loginForm = $("loginForm");
+    const signupForm = $("signupForm");
+
+    const loginTab = $("loginTab");
+    const signupTab = $("signupTab");
+
+    if (type === "signup") {
+
+        if (loginForm) {
+            loginForm.classList.remove("active");
+        }
+
+        if (signupForm) {
+            signupForm.classList.add("active");
+        }
+
+        if (loginTab) {
+            loginTab.classList.remove("active");
+        }
+
+        if (signupTab) {
+            signupTab.classList.add("active");
+        }
+
+    } else {
+
+        if (signupForm) {
+            signupForm.classList.remove("active");
+        }
+
+        if (loginForm) {
+            loginForm.classList.add("active");
+        }
+
+        if (signupTab) {
+            signupTab.classList.remove("active");
+        }
+
+        if (loginTab) {
+            loginTab.classList.add("active");
+        }
+    }
+
+    clearAuthMessage();
+}
+
+
+/* =========================================================
+   AUTH MESSAGE
+   ========================================================= */
+
+function showAuthMessage(message, type = "error") {
+
+    const element = $("authMessage");
+
+    if (!element) {
+        return;
+    }
+
+    element.textContent = message;
+
+    element.className =
+        "auth-message " + type;
+}
+
+
+function clearAuthMessage() {
+
+    const element = $("authMessage");
+
+    if (!element) {
+        return;
+    }
+
+    element.textContent = "";
+    element.className = "auth-message";
+}
+
+
+/* =========================================================
+   LOGIN
+   ========================================================= */
+
+async function loginUser(event) {
+
+    event.preventDefault();
+
+    const email =
+        $("loginEmail")?.value.trim();
+
+    const password =
+        $("loginPassword")?.value;
+
+    const button =
+        $("loginButton");
+
+    if (!email || !password) {
+
+        showAuthMessage(
+            "Please enter your email and password."
+        );
+
+        return;
+    }
+
+    if (button) {
+        button.disabled = true;
+        button.textContent = "Logging in...";
+    }
+
+    clearAuthMessage();
+
+    try {
+
+        const { data, error } =
+            await supabaseClient.auth.signInWithPassword({
+                email: email,
+                password: password
+            });
+
+        if (error) {
+
+            console.error(
+                "Login error:",
+                error
+            );
+
+            showAuthMessage(
+                error.message || "Login failed."
+            );
+
+            return;
+        }
+
+        if (!data?.session) {
+
+            showAuthMessage(
+                "Login succeeded, but no session was returned."
+            );
+
+            return;
+        }
+
+        console.log(
+            "Login successful."
+        );
+
+        showAuthMessage(
+            "Login successful.",
+            "success"
+        );
+
+        currentUser = data.user;
+
+        await handleLoggedInUser(
+            data.user
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Login exception:",
+            error
+        );
+
+        showAuthMessage(
+            "Something went wrong while logging in."
+        );
+
+    } finally {
+
+        if (button) {
+            button.disabled = false;
+            button.textContent = "Login";
+        }
+    }
+}
+
+
+/* =========================================================
+   SIGN UP
+   ========================================================= */
+
+async function signupUser(event) {
+
+    event.preventDefault();
+
+    const email =
+        $("signupEmail")?.value.trim();
+
+    const password =
+        $("signupPassword")?.value;
+
+    const confirmPassword =
+        $("signupConfirmPassword")?.value;
+
+    const button =
+        $("signupButton");
+
+    if (!email || !password || !confirmPassword) {
+
+        showAuthMessage(
+            "Please fill in all fields."
+        );
+
+        return;
+    }
+
+    if (password !== confirmPassword) {
+
+        showAuthMessage(
+            "Passwords do not match."
+        );
+
+        return;
+    }
+
+    if (password.length < 6) {
+
+        showAuthMessage(
+            "Password must be at least 6 characters."
+        );
+
+        return;
+    }
+
+    if (button) {
+        button.disabled = true;
+        button.textContent = "Creating...";
+    }
+
+    clearAuthMessage();
+
+    try {
+
+        const { data, error } =
+            await supabaseClient.auth.signUp({
+                email: email,
+                password: password
+            });
+
+        if (error) {
+
+            console.error(
+                "Signup error:",
+                error
+            );
+
+            showAuthMessage(
+                error.message || "Account creation failed."
+            );
+
+            return;
+        }
+
+        /*
+         * If Supabase email confirmation is enabled,
+         * data.session will be null.
+         */
+
+        if (!data?.session) {
+
+            showAuthMessage(
+                "Account created. Check your email to confirm your account.",
+                "success"
+            );
+
+            return;
+        }
+
+        showAuthMessage(
+            "Account created successfully.",
+            "success"
+        );
+
+        currentUser = data.user;
+
+        await handleLoggedInUser(
+            data.user
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Signup exception:",
+            error
+        );
+
+        showAuthMessage(
+            "Something went wrong while creating your account."
+        );
+
+    } finally {
+
+        if (button) {
+            button.disabled = false;
+            button.textContent = "Create Account";
+        }
+    }
+}
+
+
+/* =========================================================
+   LOGOUT
+   ========================================================= */
+
+async function logoutUser() {
+
+    try {
+
+        const { error } =
+            await supabaseClient.auth.signOut();
+
+        if (error) {
+
+            console.error(
+                "Logout error:",
+                error
+            );
+
+            return;
+        }
+
+        currentUser = null;
+
+        showLoggedOutState();
+
+        console.log(
+            "Logged out."
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Logout exception:",
+            error
+        );
+    }
+}
+
+
+/* =========================================================
+   USER UI
+   ========================================================= */
+
+function updateUserAccountUI(user) {
+
+    const email =
+        user?.email || "User";
+
+    const emailElement =
+        $("userEmail");
+
+    const avatarElement =
+        $("userAvatar");
+
+    if (emailElement) {
+        emailElement.textContent = email;
+    }
+
+    if (avatarElement) {
+
+        const firstLetter =
+            email.charAt(0).toUpperCase();
+
+        avatarElement.textContent =
+            firstLetter || "U";
+    }
+}
+
+
+/* =========================================================
+   IMPORTANT:
+   GET THE REAL SUPABASE ACCESS TOKEN
+   ========================================================= */
 
 async function getAccessToken() {
 
     try {
 
-        /*
-           Get the current authenticated session.
-           Supabase automatically handles its stored session.
-        */
-
-        const {
-            data,
-            error
-        } = await supabaseClient.auth.getSession();
-
+        let { data, error } =
+            await supabaseClient.auth.getSession();
 
         if (error) {
 
             console.error(
-                "Supabase getSession error:",
+                "getSession error:",
                 error
             );
 
             return null;
-
         }
 
-
-        if (
-            !data ||
-            !data.session ||
-            !data.session.access_token
-        ) {
-
-            console.warn(
-                "No authenticated Supabase session found."
-            );
-
-            return null;
-
-        }
-
-
-        const accessToken =
-            data.session.access_token;
-
+        let session = data?.session;
 
         /*
-           Safety check.
+         * If there is no session, try refreshing it.
+         */
 
-           A Supabase publishable key begins with:
-               sb_publishable_
+        if (!session) {
 
-           If somehow that value is returned here,
-           NEVER send it to the backend.
-        */
+            console.log(
+                "No session. Trying refresh..."
+            );
 
-        if (
-            accessToken.startsWith("sb_publishable_")
-        ) {
+            const refreshResult =
+                await supabaseClient.auth.refreshSession();
+
+            if (refreshResult.error) {
+
+                console.error(
+                    "refreshSession error:",
+                    refreshResult.error
+                );
+
+                return null;
+            }
+
+            session =
+                refreshResult.data?.session;
+        }
+
+        if (!session) {
 
             console.error(
-                "ERROR: Supabase publishable key was returned as access token."
+                "No active Supabase session."
             );
 
             return null;
-
         }
 
+        if (!session.access_token) {
+
+            console.error(
+                "Session exists but access_token is missing."
+            );
+
+            return null;
+        }
 
         /*
-           A real Supabase access token should be a JWT.
-           We don't need to decode it here.
-        */
+         * THIS is the token that goes into:
+         *
+         * Authorization:
+         * Bearer <access_token>
+         *
+         * DO NOT use SUPABASE_PUBLISHABLE_KEY here.
+         */
 
         console.log(
-            "Authenticated user access token obtained."
+            "Supabase access token obtained."
         );
 
-        return accessToken;
+        return session.access_token;
 
     } catch (error) {
 
         console.error(
-            "getAccessToken exception:",
+            "Token error:",
             error
         );
 
         return null;
-
     }
-
 }
 
 
 /* =========================================================
-   4. SESSION EXPIRATION
+   BACKEND REQUEST HELPER
+   ========================================================= */
+
+async function backendRequest(
+    endpoint,
+    options = {}
+) {
+
+    const token =
+        await getAccessToken();
+
+    if (!token) {
+
+        handleSessionExpired();
+
+        throw new Error(
+            "No valid login session."
+        );
+    }
+
+    const headers = {
+        ...(options.headers || {}),
+        "Authorization":
+            "Bearer " + token
+    };
+
+    /*
+     * Only add Content-Type automatically
+     * when we are not sending FormData.
+     */
+
+    if (!(options.body instanceof FormData)) {
+
+        headers["Content-Type"] =
+            "application/json";
+    }
+
+    console.log(
+        "Backend request:",
+        endpoint
+    );
+
+    const response =
+        await fetch(
+            BACKEND_URL + endpoint,
+            {
+                ...options,
+                headers: headers
+            }
+        );
+
+    /*
+     * 401 = Supabase token rejected by Render.
+     */
+
+    if (response.status === 401) {
+
+        console.error(
+            "Backend returned 401:",
+            endpoint
+        );
+
+        handleSessionExpired();
+
+        throw new Error(
+            "Your login session is invalid or expired."
+        );
+    }
+
+    /*
+     * 403 = request understood but forbidden.
+     */
+
+    if (response.status === 403) {
+
+        throw new Error(
+            "You do not have permission to perform this action."
+        );
+    }
+
+    /*
+     * Other server errors.
+     */
+
+    if (!response.ok) {
+
+        let message =
+            "Server error " +
+            response.status;
+
+        try {
+
+            const errorData =
+                await response.json();
+
+            if (errorData?.detail) {
+                message =
+                    errorData.detail;
+            }
+
+        } catch (_) {
+            // Ignore JSON parsing failure.
+        }
+
+        throw new Error(message);
+    }
+
+    return response;
+}
+
+
+/* =========================================================
+   SESSION EXPIRED
    ========================================================= */
 
 async function handleSessionExpired() {
 
+    console.warn(
+        "Session expired or rejected."
+    );
+
     try {
-
         await supabaseClient.auth.signOut();
-
-    } catch (error) {
-
-        console.warn(
-            "Sign out failed:",
-            error
-        );
-
+    } catch (_) {
+        // Ignore logout error.
     }
 
-    currentUserId = null;
-    currentMessages = [];
-    currentConversationId = null;
+    currentUser = null;
 
-    showLoginScreen();
+    showLoggedOutState();
 
-    alert(
+    showAuthMessage(
         "Your login session expired. Please log in again."
     );
 
+    openAuthScreen("login");
 }
 
 
 /* =========================================================
-   5. VARIABLES
+   CHAT
    ========================================================= */
 
-let userInput;
-let chatbox;
-let sendButton;
-let pdfInput;
-let imageInput;
-let uploadStatus;
-let attachmentMenu;
+async function sendMessage() {
 
-let welcomeScreen;
-let authScreen;
-let appShell;
-
-let authMessage;
-
-let loginButton;
-let signupButton;
-
-let userEmail;
-let userAvatar;
-
-let sidebarOverlay;
-
-let currentUserId = null;
-
-let currentMessages = [];
-
-let currentConversationId = null;
-
-
-/* =========================================================
-   6. LOGO
-   ========================================================= */
-
-const LOGO_SRC =
-    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'%3E%3Cline x1='30' y1='6' x2='30' y2='20'/%3E%3Cline x1='50' y1='6' x2='50' y2='20'/%3E%3Cline x1='70' y1='6' x2='70' y2='20'/%3E%3Cline x1='30' y1='80' x2='30' y2='94'/%3E%3Cline x1='50' y1='80' x2='50' y2='94'/%3E%3Cline x1='70' y1='80' x2='70' y2='94'/%3E%3Cline x1='6' y1='30' x2='20' y2='30'/%3E%3Cline x1='6' y1='50' x2='20' y2='50'/%3E%3Cline x1='6' y1='70' x2='20' y2='70'/%3E%3Cline x1='80' y1='30' x2='94' y2='30'/%3E%3Cline x1='80' y1='50' x2='94' y2='50'/%3E%3Cline x1='80' y1='70' x2='94' y2='70'/%3E%3C/g%3E%3Crect x='20' y='20' width='60' height='60' rx='10' fill='%230b0f14' stroke='%2300e5ff' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='10' fill='none' stroke='%2300e5ff' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='4' fill='%2339ff8c'/%3E%3Cline x1='50' y1='32' x2='50' y2='40' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='50' y1='60' x2='50' y2='68' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='32' y1='50' x2='40' y2='50' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='60' y1='50' x2='68' y2='50' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E";
-
-
-/* =========================================================
-   7. INITIALIZATION
-   ========================================================= */
-
-document.addEventListener(
-    "DOMContentLoaded",
-    async function () {
-
-        userInput =
-            document.getElementById("userInput");
-
-        chatbox =
-            document.getElementById("chatbox");
-
-        sendButton =
-            document.getElementById("sendButton");
-
-        pdfInput =
-            document.getElementById("pdfInput");
-
-        imageInput =
-            document.getElementById("imageInput");
-
-        uploadStatus =
-            document.getElementById("uploadStatus");
-
-        attachmentMenu =
-            document.getElementById("attachmentMenu");
-
-        welcomeScreen =
-            document.getElementById("welcomeScreen");
-
-        authScreen =
-            document.getElementById("authScreen");
-
-        appShell =
-            document.getElementById("appShell");
-
-        authMessage =
-            document.getElementById("authMessage");
-
-        loginButton =
-            document.getElementById("loginButton");
-
-        signupButton =
-            document.getElementById("signupButton");
-
-        userEmail =
-            document.getElementById("userEmail");
-
-        userAvatar =
-            document.getElementById("userAvatar");
-
-        sidebarOverlay =
-            document.getElementById("sidebarOverlay");
-
-
-        /* PDF */
-
-        if (pdfInput) {
-
-            pdfInput.addEventListener(
-                "change",
-                function () {
-
-                    if (
-                        pdfInput.files &&
-                        pdfInput.files.length > 0
-                    ) {
-
-                        uploadPDF(
-                            pdfInput.files[0]
-                        );
-
-                    }
-
-                }
-            );
-
-        }
-
-
-        /* IMAGE */
-
-        if (imageInput) {
-
-            imageInput.addEventListener(
-                "change",
-                function () {
-
-                    if (
-                        imageInput.files &&
-                        imageInput.files.length > 0
-                    ) {
-
-                        handleImageSelected(
-                            imageInput.files[0]
-                        );
-
-                    }
-
-                }
-            );
-
-        }
-
-
-        /* TEXT INPUT */
-
-        if (userInput) {
-
-            userInput.addEventListener(
-                "input",
-                autoResizeInput
-            );
-
-
-            userInput.addEventListener(
-                "keydown",
-                function (event) {
-
-                    if (
-                        event.key === "Enter" &&
-                        !event.shiftKey
-                    ) {
-
-                        event.preventDefault();
-
-                        sendMessage();
-
-                    }
-
-                }
-            );
-
-        }
-
-
-        /* EXISTING SESSION */
-
-        try {
-
-            const {
-                data,
-                error
-            } =
-                await supabaseClient.auth.getSession();
-
-
-            if (error) {
-
-                console.error(
-                    "Session error:",
-                    error
-                );
-
-                showLoginScreen();
-
-                return;
-
-            }
-
-
-            if (
-                data &&
-                data.session &&
-                data.session.user
-            ) {
-
-                showApp(
-                    data.session.user
-                );
-
-            } else {
-
-                showLoginScreen();
-
-            }
-
-        } catch (error) {
-
-            console.error(
-                "Authentication initialization error:",
-                error
-            );
-
-            showLoginScreen();
-
-        }
-
-    }
-);
-
-
-/* =========================================================
-   8. LOGIN SCREEN
-   ========================================================= */
-
-function showLoginScreen() {
-
-    if (welcomeScreen) {
-
-        welcomeScreen.hidden = false;
-
+    if (isSending) {
+        return;
     }
 
-    if (authScreen) {
+    const input =
+        $("userInput");
 
-        authScreen.hidden = true;
+    const message =
+        input?.value.trim();
 
+    if (!message) {
+        return;
     }
 
-    if (appShell) {
+    if (!currentUser) {
 
-        appShell.hidden = true;
-
-    }
-
-    currentUserId = null;
-
-    currentConversationId = null;
-
-    currentMessages = [];
-
-    resetChatboxToWelcome();
-
-    closeSidebar();
-
-    clearAuthMessage();
-
-}
-
-
-/* =========================================================
-   9. RESET CHATBOX
-   ========================================================= */
-
-function resetChatboxToWelcome() {
-
-    if (!chatbox) {
+        openAuthScreen("login");
 
         return;
+    }
 
+    isSending = true;
+
+    const sendButton =
+        $("sendButton");
+
+    if (sendButton) {
+        sendButton.disabled = true;
+    }
+
+    /*
+     * Remove welcome message.
+     */
+
+    removeWelcomeMessage();
+
+    /*
+     * Add user message.
+     */
+
+    addChatMessage(
+        message,
+        "user"
+    );
+
+    /*
+     * Clear input.
+     */
+
+    input.value = "";
+    autoResizeTextarea();
+
+    /*
+     * Thinking message.
+     */
+
+    const thinkingElement =
+        addThinkingMessage();
+
+    try {
+
+        console.log(
+            "Sending message to backend..."
+        );
+
+        const response =
+            await backendRequest(
+                "/chat",
+                {
+                    method: "POST",
+
+                    body: JSON.stringify({
+                        message: message
+                    })
+                }
+            );
+
+        const data =
+            await response.json();
+
+        removeThinkingMessage(
+            thinkingElement
+        );
+
+        if (!data?.reply) {
+
+            addChatMessage(
+                "⚠️ The server returned an empty response.",
+                "assistant"
+            );
+
+            return;
+        }
+
+        addChatMessage(
+            data.reply,
+            "assistant"
+        );
+
+        saveLocalHistory(
+            message,
+            data.reply
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Chat error:",
+            error
+        );
+
+        removeThinkingMessage(
+            thinkingElement
+        );
+
+        addChatMessage(
+            "⚠️ " +
+            (error.message ||
+                "Sorry, I couldn't connect to the AI server."),
+            "assistant"
+        );
+
+    } finally {
+
+        isSending = false;
+
+        if (sendButton) {
+            sendButton.disabled = false;
+        }
+
+        input?.focus();
+    }
+}
+
+
+/* =========================================================
+   ADD CHAT MESSAGE
+   ========================================================= */
+
+function addChatMessage(
+    text,
+    role
+) {
+
+    const chatbox =
+        $("chatbox");
+
+    if (!chatbox) {
+        return null;
+    }
+
+    const wrapper =
+        document.createElement("div");
+
+    wrapper.className =
+        role === "user"
+            ? "message user-message"
+            : "message assistant-message";
+
+    const content =
+        document.createElement("div");
+
+    content.className =
+        "message-content";
+
+    /*
+     * Convert simple markdown safely.
+     */
+
+    content.innerHTML =
+        formatMessage(text);
+
+    wrapper.appendChild(content);
+
+    chatbox.appendChild(wrapper);
+
+    chatbox.scrollTop =
+        chatbox.scrollHeight;
+
+    return wrapper;
+}
+
+
+/* =========================================================
+   MESSAGE FORMATTER
+   ========================================================= */
+
+function formatMessage(text) {
+
+    if (text === null ||
+        text === undefined) {
+
+        return "";
+    }
+
+    let safe =
+        escapeHTML(String(text));
+
+    /*
+     * Code blocks
+     */
+
+    safe = safe.replace(
+        /```([\s\S]*?)```/g,
+        "<pre><code>$1</code></pre>"
+    );
+
+    /*
+     * Bold
+     */
+
+    safe = safe.replace(
+        /\*\*(.*?)\*\*/g,
+        "<strong>$1</strong>"
+    );
+
+    /*
+     * Inline code
+     */
+
+    safe = safe.replace(
+        /`([^`]+)`/g,
+        "<code>$1</code>"
+    );
+
+    /*
+     * Bullet points
+     */
+
+    safe = safe.replace(
+        /^\s*[•*-]\s+(.*)$/gm,
+        "• $1"
+    );
+
+    /*
+     * New lines
+     */
+
+    safe = safe.replace(
+        /\n/g,
+        "<br>"
+    );
+
+    return safe;
+}
+
+
+/* =========================================================
+   HTML ESCAPE
+   ========================================================= */
+
+function escapeHTML(value) {
+
+    return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+
+/* =========================================================
+   THINKING MESSAGE
+   ========================================================= */
+
+function addThinkingMessage() {
+
+    const chatbox =
+        $("chatbox");
+
+    if (!chatbox) {
+        return null;
+    }
+
+    const element =
+        document.createElement("div");
+
+    element.className =
+        "message assistant-message thinking-message";
+
+    element.innerHTML = `
+        <div class="message-content">
+            <span>Thinking...</span>
+        </div>
+    `;
+
+    chatbox.appendChild(element);
+
+    chatbox.scrollTop =
+        chatbox.scrollHeight;
+
+    return element;
+}
+
+
+function removeThinkingMessage(
+    element
+) {
+
+    if (element &&
+        element.parentNode) {
+
+        element.parentNode.removeChild(
+            element
+        );
+    }
+}
+
+
+/* =========================================================
+   REMOVE WELCOME MESSAGE
+   ========================================================= */
+
+function removeWelcomeMessage() {
+
+    const welcome =
+        document.querySelector(
+            ".welcome-message"
+        );
+
+    if (welcome) {
+        welcome.remove();
+    }
+}
+
+
+/* =========================================================
+   NEW CHAT
+   ========================================================= */
+
+async function newChat() {
+
+    if (!currentUser) {
+        openAuthScreen("login");
+        return;
+    }
+
+    const confirmed =
+        confirm(
+            "Start a new chat? Your current conversation memory will be cleared."
+        );
+
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+
+        await backendRequest(
+            "/reset",
+            {
+                method: "POST"
+            }
+        );
+
+        clearChatUI();
+
+        localStorage.removeItem(
+            getHistoryStorageKey()
+        );
+
+        console.log(
+            "New chat started."
+        );
+
+    } catch (error) {
+
+        console.error(
+            "New chat error:",
+            error
+        );
+
+        alert(
+            error.message ||
+            "Could not reset the conversation."
+        );
+    }
+}
+
+
+/* =========================================================
+   CLEAR CHAT UI
+   ========================================================= */
+
+function clearChatUI() {
+
+    const chatbox =
+        $("chatbox");
+
+    if (!chatbox) {
+        return;
     }
 
     chatbox.innerHTML = `
-
         <div class="welcome-message">
 
             <div class="welcome-icon">
-
-                <img
-                    src="${LOGO_SRC}"
-                    alt="AI logo"
-                    width="56"
-                    height="56"
-                >
-
+                🤖
             </div>
 
             <h2>
@@ -487,1325 +1275,510 @@ function resetChatboxToWelcome() {
             </p>
 
         </div>
-
     `;
-
 }
 
 
 /* =========================================================
-   10. AUTH SCREEN
+   CHAT HISTORY
    ========================================================= */
 
-function openAuthScreen(form) {
+function getHistoryStorageKey() {
 
-    if (welcomeScreen) {
-
-        welcomeScreen.hidden = true;
-
+    if (!currentUser?.id) {
+        return "my_ai_assistant_history";
     }
 
-    if (authScreen) {
-
-        authScreen.hidden = false;
-
-    }
-
-    showAuthForm(
-        form || "login"
+    return (
+        "my_ai_assistant_history_" +
+        currentUser.id
     );
-
 }
 
 
-function backToWelcome() {
-
-    if (authScreen) {
-
-        authScreen.hidden = true;
-
-    }
-
-    if (welcomeScreen) {
-
-        welcomeScreen.hidden = false;
-
-    }
-
-    clearAuthMessage();
-
-}
-
-
-/* =========================================================
-   11. SHOW APPLICATION
-   ========================================================= */
-
-function showApp(user) {
-
-    if (!user || !user.id) {
-
-        return;
-
-    }
-
-    if (welcomeScreen) {
-
-        welcomeScreen.hidden = true;
-
-    }
-
-    if (authScreen) {
-
-        authScreen.hidden = true;
-
-    }
-
-    if (appShell) {
-
-        appShell.hidden = false;
-
-    }
-
-    const differentUser =
-        currentUserId !== user.id;
-
-
-    if (differentUser) {
-
-        currentMessages = [];
-
-        currentConversationId = null;
-
-        resetChatboxToWelcome();
-
-    }
-
-    currentUserId = user.id;
-
-    updateUserDisplay(user);
-
-    autoResizeInput();
-
-
-    setTimeout(
-        function () {
-
-            loadHistoryList();
-
-        },
-        100
-    );
-
-}
-
-
-/* =========================================================
-   12. USER DISPLAY
-   ========================================================= */
-
-function updateUserDisplay(user) {
-
-    if (!user) {
-
-        return;
-
-    }
-
-    const email =
-        user.email || "User";
-
-
-    if (userEmail) {
-
-        userEmail.textContent =
-            email;
-
-    }
-
-
-    if (userAvatar) {
-
-        userAvatar.textContent =
-            email
-                .charAt(0)
-                .toUpperCase();
-
-    }
-
-}
-
-
-/* =========================================================
-   13. AUTH FORM
-   ========================================================= */
-
-function showAuthForm(form) {
-
-    const loginForm =
-        document.getElementById("loginForm");
-
-    const signupForm =
-        document.getElementById("signupForm");
-
-    const loginTab =
-        document.getElementById("loginTab");
-
-    const signupTab =
-        document.getElementById("signupTab");
-
-
-    clearAuthMessage();
-
-
-    if (
-        !loginForm ||
-        !signupForm ||
-        !loginTab ||
-        !signupTab
-    ) {
-
-        console.error(
-            "Authentication form elements not found."
+function loadLocalHistory() {
+
+    const history =
+        localStorage.getItem(
+            getHistoryStorageKey()
         );
 
+    if (!history) {
         return;
-
     }
 
+    try {
 
-    if (form === "login") {
+        const messages =
+            JSON.parse(history);
 
-        loginForm.classList.add("active");
-        signupForm.classList.remove("active");
+        if (!Array.isArray(messages)) {
+            return;
+        }
 
-        loginTab.classList.add("active");
-        signupTab.classList.remove("active");
+        renderHistoryList(messages);
 
-    } else {
+    } catch (error) {
 
-        signupForm.classList.add("active");
-        loginForm.classList.remove("active");
-
-        signupTab.classList.add("active");
-        loginTab.classList.remove("active");
-
+        console.error(
+            "History load error:",
+            error
+        );
     }
-
 }
 
 
-/* =========================================================
-   14. AUTH MESSAGE
-   ========================================================= */
-
-function showAuthMessage(
-    message,
-    type = ""
+function saveLocalHistory(
+    userMessage,
+    assistantReply
 ) {
 
-    if (!authMessage) {
+    const key =
+        getHistoryStorageKey();
 
-        return;
+    let history = [];
 
+    try {
+
+        const existing =
+            localStorage.getItem(key);
+
+        if (existing) {
+
+            history =
+                JSON.parse(existing);
+
+            if (!Array.isArray(history)) {
+                history = [];
+            }
+        }
+
+    } catch (_) {
+
+        history = [];
     }
 
-    authMessage.textContent =
-        message;
+    history.push({
+        user: userMessage,
+        assistant: assistantReply,
+        timestamp:
+            new Date().toISOString()
+    });
 
-    authMessage.className =
-        "auth-message";
+    /*
+     * Keep last 50 conversations in browser.
+     */
 
+    history =
+        history.slice(-50);
 
-    if (type) {
-
-        authMessage.classList.add(
-            type
-        );
-
-    }
-
+    localStorage.setItem(
+        key,
+        JSON.stringify(history)
+    );
 }
 
 
-function clearAuthMessage() {
+function renderHistoryList(
+    history
+) {
 
-    if (!authMessage) {
+    const container =
+        $("historyList");
 
+    if (!container) {
         return;
-
     }
 
-    authMessage.textContent =
-        "";
+    container.innerHTML = "";
 
-    authMessage.className =
-        "auth-message";
+    if (!history.length) {
 
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">🕘</div>
+                <h3>No chat history yet</h3>
+                <p>Your previous conversations will appear here.</p>
+            </div>
+        `;
+
+        return;
+    }
+
+    [...history]
+        .reverse()
+        .forEach(item => {
+
+            const element =
+                document.createElement("div");
+
+            element.className =
+                "history-item";
+
+            const date =
+                item.timestamp
+                    ? new Date(
+                        item.timestamp
+                    ).toLocaleString()
+                    : "";
+
+            element.innerHTML = `
+                <div>
+                    <strong>
+                        ${escapeHTML(
+                            item.user || "Chat"
+                        )}
+                    </strong>
+
+                    <p>
+                        ${escapeHTML(
+                            item.assistant || ""
+                        ).substring(0, 180)}
+                    </p>
+
+                    <small>
+                        ${escapeHTML(date)}
+                    </small>
+                </div>
+            `;
+
+            container.appendChild(
+                element
+            );
+        });
 }
 
 
 /* =========================================================
-   15. LOGIN
+   CLEAR CHAT HISTORY
    ========================================================= */
 
-async function loginUser(event) {
+async function clearChatHistory() {
 
-    event.preventDefault();
-
-
-    const emailElement =
-        document.getElementById(
-            "loginEmail"
-        );
-
-    const passwordElement =
-        document.getElementById(
-            "loginPassword"
-        );
-
-
-    if (
-        !emailElement ||
-        !passwordElement
-    ) {
-
-        showAuthMessage(
-            "Login form could not be loaded.",
-            "error"
-        );
-
+    if (!currentUser) {
         return;
-
     }
 
-
-    const email =
-        emailElement.value.trim();
-
-    const password =
-        passwordElement.value;
-
-
-    if (!email || !password) {
-
-        showAuthMessage(
-            "Please enter your email and password.",
-            "error"
+    const confirmed =
+        confirm(
+            "Clear your conversation history?"
         );
 
+    if (!confirmed) {
         return;
-
     }
-
-
-    if (loginButton) {
-
-        loginButton.disabled = true;
-
-        loginButton.textContent =
-            "Logging in...";
-
-    }
-
-
-    clearAuthMessage();
-
 
     try {
 
-        const {
-            data,
-            error
-        } =
-            await supabaseClient.auth
-                .signInWithPassword({
+        await backendRequest(
+            "/reset",
+            {
+                method: "POST"
+            }
+        );
 
-                    email: email,
+        localStorage.removeItem(
+            getHistoryStorageKey()
+        );
 
-                    password: password
+        renderHistoryList([]);
 
-                });
-
-
-        if (error) {
-
-            console.error(
-                "Login error:",
-                error
-            );
-
-            showAuthMessage(
-                error.message ||
-                "Login failed.",
-                "error"
-            );
-
-            return;
-
-        }
-
-
-        if (
-            !data ||
-            !data.user ||
-            !data.session
-        ) {
-
-            showAuthMessage(
-                "Login failed: no session was returned.",
-                "error"
-            );
-
-            return;
-
-        }
-
+        clearChatUI();
 
         console.log(
-            "Login successful."
-        );
-
-
-        showAuthMessage(
-            "Login successful.",
-            "success"
-        );
-
-
-        showApp(
-            data.user
+            "History cleared."
         );
 
     } catch (error) {
 
         console.error(
-            "Login exception:",
-            error
-        );
-
-        showAuthMessage(
-            error.message ||
-            "Something went wrong while logging in.",
-            "error"
-        );
-
-    } finally {
-
-        if (loginButton) {
-
-            loginButton.disabled =
-                false;
-
-            loginButton.textContent =
-                "Login";
-
-        }
-
-    }
-
-}
-
-
-/* =========================================================
-   16. SIGN UP
-   ========================================================= */
-
-async function signupUser(event) {
-
-    event.preventDefault();
-
-
-    const emailElement =
-        document.getElementById(
-            "signupEmail"
-        );
-
-    const passwordElement =
-        document.getElementById(
-            "signupPassword"
-        );
-
-    const confirmElement =
-        document.getElementById(
-            "signupConfirmPassword"
-        );
-
-
-    if (
-        !emailElement ||
-        !passwordElement ||
-        !confirmElement
-    ) {
-
-        showAuthMessage(
-            "Signup form could not be loaded.",
-            "error"
-        );
-
-        return;
-
-    }
-
-
-    const email =
-        emailElement.value.trim();
-
-    const password =
-        passwordElement.value;
-
-    const confirmPassword =
-        confirmElement.value;
-
-
-    if (!email) {
-
-        showAuthMessage(
-            "Please enter your email.",
-            "error"
-        );
-
-        return;
-
-    }
-
-
-    if (password.length < 6) {
-
-        showAuthMessage(
-            "Password must be at least 6 characters.",
-            "error"
-        );
-
-        return;
-
-    }
-
-
-    if (
-        password !== confirmPassword
-    ) {
-
-        showAuthMessage(
-            "Passwords do not match.",
-            "error"
-        );
-
-        return;
-
-    }
-
-
-    if (signupButton) {
-
-        signupButton.disabled =
-            true;
-
-        signupButton.textContent =
-            "Creating account...";
-
-    }
-
-
-    clearAuthMessage();
-
-
-    try {
-
-        const {
-            data,
-            error
-        } =
-            await supabaseClient.auth
-                .signUp({
-
-                    email: email,
-
-                    password: password
-
-                });
-
-
-        if (error) {
-
-            console.error(
-                "Signup error:",
-                error
-            );
-
-            showAuthMessage(
-                error.message ||
-                "Account creation failed.",
-                "error"
-            );
-
-            return;
-
-        }
-
-
-        if (
-            data &&
-            data.user &&
-            !data.session
-        ) {
-
-            showAuthMessage(
-                "Account created. Please verify your email before logging in.",
-                "success"
-            );
-
-            return;
-
-        }
-
-
-        if (
-            data &&
-            data.session &&
-            data.user
-        ) {
-
-            showAuthMessage(
-                "Account created successfully.",
-                "success"
-            );
-
-            showApp(
-                data.user
-            );
-
-        }
-
-    } catch (error) {
-
-        console.error(
-            "Signup exception:",
-            error
-        );
-
-        showAuthMessage(
-            error.message ||
-            "Something went wrong while creating your account.",
-            "error"
-        );
-
-    } finally {
-
-        if (signupButton) {
-
-            signupButton.disabled =
-                false;
-
-            signupButton.textContent =
-                "Create Account";
-
-        }
-
-    }
-
-}
-
-
-/* =========================================================
-   17. LOGOUT
-   ========================================================= */
-
-async function logoutUser() {
-
-    try {
-
-        const {
-            error
-        } =
-            await supabaseClient.auth
-                .signOut();
-
-
-        if (error) {
-
-            console.error(
-                "Logout error:",
-                error
-            );
-
-            alert(
-                "Logout failed. Please try again."
-            );
-
-            return;
-
-        }
-
-
-        currentUserId = null;
-
-        currentConversationId = null;
-
-        currentMessages = [];
-
-
-        showLoginScreen();
-
-
-        const passwordElement =
-            document.getElementById(
-                "loginPassword"
-            );
-
-
-        if (passwordElement) {
-
-            passwordElement.value =
-                "";
-
-        }
-
-    } catch (error) {
-
-        console.error(
-            "Logout exception:",
+            "Clear history error:",
             error
         );
 
         alert(
-            "Something went wrong while logging out."
+            error.message ||
+            "Could not clear history."
         );
-
     }
-
 }
 
 
 /* =========================================================
-   18. SEND MESSAGE
+   DOCUMENTS
    ========================================================= */
 
-async function sendMessage() {
+async function loadDocumentsList() {
 
-    if (!userInput) {
+    const container =
+        $("documentsList");
 
-        return;
-
-    }
-
-
-    const message =
-        userInput.value.trim();
-
-
-    if (!message) {
+    if (!container ||
+        !currentUser) {
 
         return;
-
     }
 
-
-    if (!currentUserId) {
-
-        console.warn(
-            "No logged-in user."
-        );
-
-        return;
-
-    }
-
-
-    toggleAttachmentMenu(false);
-
-
-    if (sendButton) {
-
-        sendButton.disabled =
-            true;
-
-    }
-
-
-    userInput.disabled =
-        true;
-
-
-    const wasNewConversation =
-        !currentConversationId;
-
-
-    addMessage(
-        "user",
-        message
-    );
-
-
-    currentMessages.push({
-
-        role: "user",
-
-        content: message
-
-    });
-
-
-    userInput.value =
-        "";
-
-    autoResizeInput();
-
-
-    const thinkingMessage =
-        addTypingIndicator();
-
+    container.innerHTML = `
+        <div class="empty-state">
+            <div class="empty-icon">📄</div>
+            <p>Loading documents...</p>
+        </div>
+    `;
 
     try {
 
-        /*
-           IMPORTANT:
-           This MUST return the user's Supabase
-           access token, NOT the publishable key.
-        */
-
-        const token =
-            await getAccessToken();
-
-
-        if (!token) {
-
-            await handleSessionExpired();
-
-            throw new Error(
-                "No valid login access token."
-            );
-
-        }
-
-
-        console.log(
-            "Sending authenticated /chat request."
-        );
-
-
         const response =
-            await fetch(
-
-                BACKEND_URL +
-                "/chat",
-
+            await backendRequest(
+                "/documents",
                 {
-
-                    method: "POST",
-
-                    headers: {
-
-                        "Content-Type":
-                            "application/json",
-
-                        "Authorization":
-                            "Bearer " +
-                            token
-
-                    },
-
-                    body:
-                        JSON.stringify({
-
-                            message:
-                                message
-
-                        })
-
+                    method: "GET"
                 }
-
             );
-
-
-        if (response.status === 401) {
-
-            let errorBody = null;
-
-            try {
-
-                errorBody =
-                    await response.json();
-
-            } catch (e) {
-
-                errorBody = null;
-
-            }
-
-
-            console.error(
-                "Backend authentication failed:",
-                errorBody
-            );
-
-
-            await handleSessionExpired();
-
-
-            throw new Error(
-                "Session expired."
-            );
-
-        }
-
-
-        if (!response.ok) {
-
-            let errorBody = null;
-
-            try {
-
-                errorBody =
-                    await response.json();
-
-            } catch (e) {
-
-                errorBody = null;
-
-            }
-
-
-            console.error(
-                "Backend error:",
-                response.status,
-                errorBody
-            );
-
-
-            throw new Error(
-                "Server returned " +
-                response.status
-            );
-
-        }
-
 
         const data =
             await response.json();
 
+        const documents =
+            data?.documents || [];
 
-        const reply =
-            data.response ||
-            data.message ||
-            data.reply ||
-            "I couldn't generate a response.";
-
-
-        updateMessage(
-            thinkingMessage,
-            reply
+        renderDocuments(
+            documents
         );
-
-
-        currentMessages.push({
-
-            role: "assistant",
-
-            content: reply
-
-        });
-
-
-        if (wasNewConversation) {
-
-            await createConversation(
-                message
-            );
-
-        } else {
-
-            await updateCloudConversation();
-
-        }
 
     } catch (error) {
 
         console.error(
-            "Chat error:",
+            "Documents error:",
             error
         );
 
-
-        updateMessage(
-
-            thinkingMessage,
-
-            error.message ===
-                "Session expired."
-
-                ? "Your login session expired. Please log in again."
-
-                : "Sorry, I couldn't connect to the AI server."
-
-        );
-
-
-        currentMessages =
-            currentMessages.slice(
-                0,
-                -1
-            );
-
-    } finally {
-
-        if (sendButton) {
-
-            sendButton.disabled =
-                false;
-
-        }
-
-
-        userInput.disabled =
-            false;
-
-        userInput.focus();
-
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">⚠️</div>
+                <h3>Could not load documents</h3>
+                <p>
+                    ${escapeHTML(
+                        error.message ||
+                        "Server error"
+                    )}
+                </p>
+            </div>
+        `;
     }
-
 }
 
 
-/* =========================================================
-   19. ADD MESSAGE
-   ========================================================= */
-
-function addMessage(
-    role,
-    content
+function renderDocuments(
+    documents
 ) {
 
-    const messageDiv =
-        document.createElement(
-            "div"
-        );
+    const container =
+        $("documentsList");
 
-
-    messageDiv.className =
-        role === "user"
-            ? "message user-message"
-            : "message ai-message";
-
-
-    const contentDiv =
-        document.createElement(
-            "div"
-        );
-
-
-    contentDiv.className =
-        "message-content";
-
-
-    contentDiv.textContent =
-        content;
-
-
-    messageDiv.appendChild(
-        contentDiv
-    );
-
-
-    if (chatbox) {
-
-        chatbox.appendChild(
-            messageDiv
-        );
-
+    if (!container) {
+        return;
     }
 
+    container.innerHTML = "";
 
-    scrollToBottom();
+    if (!documents.length) {
 
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">📄</div>
 
-    return messageDiv;
+                <h3>No documents yet</h3>
 
-}
-
-
-/* =========================================================
-   20. TYPING INDICATOR
-   ========================================================= */
-
-function addTypingIndicator() {
-
-    const messageDiv =
-        document.createElement(
-            "div"
-        );
-
-
-    messageDiv.className =
-        "message ai-message";
-
-
-    const contentDiv =
-        document.createElement(
-            "div"
-        );
-
-
-    contentDiv.className =
-        "message-content";
-
-
-    const dots =
-        document.createElement(
-            "span"
-        );
-
-
-    dots.className =
-        "typing-dots";
-
-
-    for (
-        let i = 0;
-        i < 3;
-        i++
-    ) {
-
-        const dot =
-            document.createElement(
-                "span"
-            );
-
-        dot.className =
-            "typing-dot";
-
-        dots.appendChild(
-            dot
-        );
-
-    }
-
-
-    contentDiv.appendChild(
-        dots
-    );
-
-    messageDiv.appendChild(
-        contentDiv
-    );
-
-
-    if (chatbox) {
-
-        chatbox.appendChild(
-            messageDiv
-        );
-
-    }
-
-
-    scrollToBottom();
-
-
-    return messageDiv;
-
-}
-
-
-/* =========================================================
-   21. UPDATE MESSAGE
-   ========================================================= */
-
-function updateMessage(
-    messageElement,
-    content
-) {
-
-    if (!messageElement) {
+                <p>
+                    Upload a PDF to create your
+                    personal AI knowledge base.
+                </p>
+            </div>
+        `;
 
         return;
-
     }
 
+    documents.forEach(document => {
 
-    const contentDiv =
-        messageElement.querySelector(
-            ".message-content"
+        const item =
+            document.createElement
+            ? document.createElement("div")
+            : null;
+
+        if (!item) {
+            return;
+        }
+
+        item.className =
+            "document-item";
+
+        item.innerHTML = `
+            <div class="document-icon">
+                📄
+            </div>
+
+            <div class="document-info">
+
+                <strong>
+                    ${escapeHTML(
+                        document.filename ||
+                        "Unknown PDF"
+                    )}
+                </strong>
+
+                <span>
+                    ${Number(
+                        document.chunks || 0
+                    )} chunks
+                </span>
+
+            </div>
+        `;
+
+        container.appendChild(
+            item
         );
-
-
-    if (contentDiv) {
-
-        contentDiv.textContent =
-            content;
-
-    } else {
-
-        messageElement.textContent =
-            content;
-
-    }
-
-
-    scrollToBottom();
-
+    });
 }
 
 
 /* =========================================================
-   22. PDF UPLOAD
+   PDF FILE SELECTION
    ========================================================= */
 
 function selectPDF() {
 
-    if (!pdfInput) {
+    const input =
+        $("pdfInput");
 
+    if (!input) {
         return;
-
     }
 
-    toggleAttachmentMenu(false);
+    input.value = "";
 
-    pdfInput.click();
-
+    input.click();
 }
 
 
+/* =========================================================
+   PDF INPUT EVENT
+   ========================================================= */
+
+document.addEventListener(
+    "change",
+    async (event) => {
+
+        if (
+            event.target &&
+            event.target.id === "pdfInput"
+        ) {
+
+            const file =
+                event.target.files?.[0];
+
+            if (file) {
+                await uploadPDF(file);
+            }
+        }
+    }
+);
+
+
+/* =========================================================
+   PDF UPLOAD
+   ========================================================= */
+
 async function uploadPDF(file) {
 
-    if (!file) {
+    if (!currentUser) {
+
+        openAuthScreen("login");
 
         return;
-
     }
 
+    if (!file) {
+        return;
+    }
 
     if (
-        file.type !==
-        "application/pdf"
+        !file.name
+            .toLowerCase()
+            .endsWith(".pdf")
     ) {
 
         showUploadStatus(
-            "Please select a PDF file.",
-            "error"
+            "Only PDF files are supported.",
+            true
         );
 
         return;
-
     }
 
+    /*
+     * Backend limit = 10 MB.
+     */
 
-    if (!currentUserId) {
+    const maxBytes =
+        10 * 1024 * 1024;
+
+    if (file.size > maxBytes) {
 
         showUploadStatus(
-            "Please log in again before uploading.",
-            "error"
+            "PDF is too large. Maximum size is 10 MB.",
+            true
         );
 
         return;
-
     }
 
-
     showUploadStatus(
-        "Uploading PDF...",
-        "loading"
+        "Uploading and processing PDF...",
+        false
     );
-
-
-    const formData =
-        new FormData();
-
-
-    formData.append(
-        "file",
-        file
-    );
-
 
     try {
 
-        const token =
-            await getAccessToken();
+        const formData =
+            new FormData();
 
-
-        if (!token) {
-
-            await handleSessionExpired();
-
-            return;
-
-        }
-
+        formData.append(
+            "file",
+            file
+        );
 
         const response =
-            await fetch(
-
-                BACKEND_URL +
+            await backendRequest(
                 "/upload",
-
                 {
-
                     method: "POST",
-
-                    headers: {
-
-                        "Authorization":
-                            "Bearer " +
-                            token
-
-                    },
-
-                    body:
-                        formData
-
+                    body: formData
                 }
-
             );
-
-
-        if (
-            response.status ===
-            401
-        ) {
-
-            await handleSessionExpired();
-
-            return;
-
-        }
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                "Upload failed with status " +
-                response.status
-            );
-
-        }
-
 
         const data =
             await response.json();
 
+        if (!data?.success) {
+
+            showUploadStatus(
+                data?.message ||
+                "PDF upload failed.",
+                true
+            );
+
+            return;
+        }
 
         showUploadStatus(
-
-            data.message ||
-            (
-                data.success
-                    ? "PDF uploaded successfully."
-                    : "Upload failed."
-            ),
-
-            data.success
-                ? "success"
-                : "error"
-
+            `PDF uploaded successfully: ${data.filename}`,
+            false
         );
 
-
-        if (data.success) {
-
-            loadDocumentsList();
-
-        }
+        await loadDocumentsList();
 
     } catch (error) {
 
@@ -1815,1444 +1788,646 @@ async function uploadPDF(file) {
         );
 
         showUploadStatus(
+            error.message ||
             "PDF upload failed.",
-            "error"
+            true
         );
-
-    } finally {
-
-        if (pdfInput) {
-
-            pdfInput.value =
-                "";
-
-        }
-
     }
-
 }
 
 
 /* =========================================================
-   23. DOCUMENTS
-   ========================================================= */
-
-function documentsEmptyState(
-    title,
-    text
-) {
-
-    return `
-
-        <div class="empty-state">
-
-            <div class="empty-icon">
-                📄
-            </div>
-
-            <h3>
-                ${escapeHTML(title)}
-            </h3>
-
-            <p>
-                ${escapeHTML(text)}
-            </p>
-
-        </div>
-
-    `;
-
-}
-
-
-async function loadDocumentsList() {
-
-    const list =
-        document.getElementById(
-            "documentsList"
-        );
-
-
-    if (
-        !list ||
-        !currentUserId
-    ) {
-
-        return;
-
-    }
-
-
-    const userAtStart =
-        currentUserId;
-
-
-    list.innerHTML =
-        documentsEmptyState(
-            "Loading...",
-            "Getting your documents."
-        );
-
-
-    try {
-
-        const token =
-            await getAccessToken();
-
-
-        if (!token) {
-
-            await handleSessionExpired();
-
-            return;
-
-        }
-
-
-        const response =
-            await fetch(
-
-                BACKEND_URL +
-                "/documents",
-
-                {
-
-                    method: "GET",
-
-                    headers: {
-
-                        "Authorization":
-                            "Bearer " +
-                            token
-
-                    }
-
-                }
-
-            );
-
-
-        if (
-            response.status ===
-            401
-        ) {
-
-            await handleSessionExpired();
-
-            return;
-
-        }
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                "Server returned " +
-                response.status
-            );
-
-        }
-
-
-        const data =
-            await response.json();
-
-
-        if (
-            currentUserId !==
-            userAtStart
-        ) {
-
-            return;
-
-        }
-
-
-        const documents =
-            Array.isArray(
-                data.documents
-            )
-                ? data.documents
-                : [];
-
-
-        if (
-            documents.length ===
-            0
-        ) {
-
-            list.innerHTML =
-                documentsEmptyState(
-                    "No documents yet",
-                    "Upload a PDF to add it to your knowledge base."
-                );
-
-            return;
-
-        }
-
-
-        list.innerHTML =
-            "";
-
-
-        documents.forEach(
-            function (doc) {
-
-                const item =
-                    document.createElement(
-                        "div"
-                    );
-
-
-                item.className =
-                    "document-item";
-
-
-                const chunkText =
-                    doc.chunks === 1
-                        ? "1 section"
-                        : doc.chunks +
-                          " sections";
-
-
-                item.innerHTML = `
-
-                    <div class="document-icon">
-                        📄
-                    </div>
-
-                    <div class="document-item-main">
-
-                        <div class="document-name">
-                            ${escapeHTML(
-                                doc.filename
-                            )}
-                        </div>
-
-                        <div class="document-meta">
-                            ${escapeHTML(
-                                chunkText
-                            )}
-                        </div>
-
-                    </div>
-
-                `;
-
-
-                list.appendChild(
-                    item
-                );
-
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Load documents error:",
-            error
-        );
-
-
-        list.innerHTML =
-            documentsEmptyState(
-                "Could not load documents",
-                "Please try again in a moment."
-            );
-
-    }
-
-}
-
-
-/* =========================================================
-   24. IMAGE
-   ========================================================= */
-
-function selectImage() {
-
-    if (!imageInput) {
-
-        return;
-
-    }
-
-    toggleAttachmentMenu(false);
-
-    imageInput.click();
-
-}
-
-
-function handleImageSelected(file) {
-
-    if (!file) {
-
-        return;
-
-    }
-
-
-    showUploadStatus(
-
-        "Image selected. Vision integration will be added next.",
-
-        "loading"
-
-    );
-
-
-    imageInput.value =
-        "";
-
-}
-
-
-/* =========================================================
-   25. UPLOAD STATUS
+   UPLOAD STATUS
    ========================================================= */
 
 function showUploadStatus(
     message,
-    type = ""
+    isError = false
 ) {
 
-    if (!uploadStatus) {
+    const element =
+        $("uploadStatus");
 
+    if (!element) {
         return;
-
     }
 
-
-    uploadStatus.textContent =
+    element.textContent =
         message;
 
+    element.className =
+        "upload-status" +
+        (isError ? " error" : " success");
 
-    uploadStatus.className =
-        "upload-status";
+    setTimeout(() => {
 
+        if (
+            element.textContent ===
+            message
+        ) {
 
-    if (type) {
+            element.textContent = "";
+            element.className =
+                "upload-status";
+        }
 
-        uploadStatus.classList.add(
-            type
-        );
-
-    }
-
-
-    if (
-        type ===
-        "success"
-    ) {
-
-        setTimeout(
-            function () {
-
-                uploadStatus.textContent =
-                    "";
-
-            },
-            5000
-        );
-
-    }
-
+    }, 6000);
 }
 
 
 /* =========================================================
-   26. ATTACHMENT MENU
+   IMAGE UPLOAD
    ========================================================= */
 
-function toggleAttachmentMenu(
-    forceState
-) {
+function selectImage() {
 
-    if (!attachmentMenu) {
+    const input =
+        $("imageInput");
 
+    if (!input) {
         return;
-
     }
 
+    input.value = "";
 
-    if (
-        typeof forceState ===
-        "boolean"
-    ) {
-
-        if (forceState) {
-
-            attachmentMenu.classList.add(
-                "show"
-            );
-
-        } else {
-
-            attachmentMenu.classList.remove(
-                "show"
-            );
-
-        }
-
-        return;
-
-    }
-
-
-    attachmentMenu.classList.toggle(
-        "show"
-    );
-
+    input.click();
 }
 
 
-/* =========================================================
-   27. NEW CHAT
-   ========================================================= */
-
-async function newChat() {
-
-    currentMessages = [];
-
-    currentConversationId =
-        null;
-
-
-    resetChatboxToWelcome();
-
-
-    if (userInput) {
-
-        userInput.value =
-            "";
-
-        autoResizeInput();
-
-        userInput.focus();
-
-    }
-
-
-    showSection(
-        "chat"
-    );
-
-
-    closeSidebar();
-
-
-    try {
-
-        const token =
-            await getAccessToken();
-
-
-        if (token) {
-
-            await fetch(
-
-                BACKEND_URL +
-                "/reset",
-
-                {
-
-                    method: "POST",
-
-                    headers: {
-
-                        "Authorization":
-                            "Bearer " +
-                            token
-
-                    }
-
-                }
-
-            );
-
-        }
-
-    } catch (error) {
-
-        console.warn(
-            "Backend reset failed:",
-            error
-        );
-
-    }
-
-}
-
-
-/* =========================================================
-   28. CLOUD CONVERSATION
-   ========================================================= */
-
-async function createConversation(
-    firstMessage
-) {
-
-    if (!currentUserId) {
-
-        return false;
-
-    }
-
-
-    try {
-
-        const title =
-            firstMessage.substring(
-                0,
-                45
-            ) ||
-            "New Conversation";
-
-
-        const nowIso =
-            new Date()
-                .toISOString();
-
-
-        const {
-            data,
-            error
-        } =
-            await supabaseClient
-                .from(
-                    "chat_conversations"
-                )
-                .insert({
-
-                    user_id:
-                        currentUserId,
-
-                    title:
-                        title,
-
-                    messages:
-                        currentMessages,
-
-                    updated_at:
-                        nowIso
-
-                })
-                .select("id")
-                .single();
-
-
-        if (error) {
-
-            console.error(
-                "Create conversation error:",
-                error
-            );
-
-            return false;
-
-        }
-
-
-        currentConversationId =
-            data.id;
-
-
-        loadHistoryList();
-
-
-        return true;
-
-    } catch (error) {
-
-        console.error(
-            "Create conversation exception:",
-            error
-        );
-
-        return false;
-
-    }
-
-}
-
-
-async function updateCloudConversation() {
-
-    if (
-        !currentUserId ||
-        !currentConversationId
-    ) {
-
-        return false;
-
-    }
-
-
-    try {
-
-        const {
-            error
-        } =
-            await supabaseClient
-                .from(
-                    "chat_conversations"
-                )
-                .update({
-
-                    messages:
-                        currentMessages,
-
-                    updated_at:
-                        new Date()
-                            .toISOString()
-
-                })
-                .eq(
-                    "id",
-                    currentConversationId
-                )
-                .eq(
-                    "user_id",
-                    currentUserId
-                );
-
-
-        if (error) {
-
-            console.error(
-                "Update conversation error:",
-                error
-            );
-
-            return false;
-
-        }
-
-
-        loadHistoryList();
-
-
-        return true;
-
-    } catch (error) {
-
-        console.error(
-            "Update conversation exception:",
-            error
-        );
-
-        return false;
-
-    }
-
-}
-
-
-/* =========================================================
-   29. HISTORY
-   ========================================================= */
-
-async function getHistories() {
-
-    if (!currentUserId) {
-
-        return [];
-
-    }
-
-
-    try {
-
-        const {
-            data,
-            error
-        } =
-            await supabaseClient
-                .from(
-                    "chat_conversations"
-                )
-                .select(
-                    "id, user_id, title, messages, created_at, updated_at"
-                )
-                .eq(
-                    "user_id",
-                    currentUserId
-                )
-                .order(
-                    "updated_at",
-                    {
-                        ascending:
-                            false
-                    }
-                )
-                .limit(30);
-
-
-        if (error) {
-
-            console.error(
-                "Get history error:",
-                error
-            );
-
-            return [];
-
-        }
-
-
-        return data || [];
-
-    } catch (error) {
-
-        console.error(
-            "Get history exception:",
-            error
-        );
-
-        return [];
-
-    }
-
-}
-
-
-async function loadHistoryList() {
-
-    const historyList =
-        document.getElementById(
-            "historyList"
-        );
-
-
-    if (!historyList) {
-
-        return;
-
-    }
-
-
-    if (!currentUserId) {
-
-        return;
-
-    }
-
-
-    const histories =
-        await getHistories();
-
-
-    if (!currentUserId) {
-
-        return;
-
-    }
-
-
-    if (
-        histories.length ===
-        0
-    ) {
-
-        historyList.innerHTML = `
-
-            <div class="empty-state">
-
-                <div class="empty-icon">
-                    🕘
-                </div>
-
-                <h3>
-                    No chat history yet
-                </h3>
-
-                <p>
-                    Your conversations will appear here.
-                </p>
-
-            </div>
-
-        `;
-
-        return;
-
-    }
-
-
-    historyList.innerHTML =
-        "";
-
-
-    histories.forEach(
-        function (conversation) {
-
-            const item =
-                document.createElement(
-                    "div"
-                );
-
-
-            item.className =
-                "history-item";
-
-
-            const date =
-                conversation.updated_at
-                    ? new Date(
-                        conversation.updated_at
-                    ).toLocaleString()
-                    : "";
-
-
-            item.innerHTML = `
-
-                <div class="history-item-main">
-
-                    <div class="history-title">
-                        ${escapeHTML(
-                            conversation.title ||
-                            "New Conversation"
-                        )}
-                    </div>
-
-                    <div class="history-date">
-                        ${escapeHTML(
-                            date
-                        )}
-                    </div>
-
-                </div>
-
-                <button
-                    class="history-open-btn"
-                    type="button"
-                >
-                    Open
-                </button>
-
-            `;
-
-
-            const openButton =
-                item.querySelector(
-                    ".history-open-btn"
-                );
-
-
-            if (openButton) {
-
-                openButton.addEventListener(
-                    "click",
-                    function () {
-
-                        restoreConversation(
-                            conversation.id
-                        );
-
-                    }
-                );
-
+document.addEventListener(
+    "change",
+    (event) => {
+
+        if (
+            event.target &&
+            event.target.id === "imageInput"
+        ) {
+
+            const file =
+                event.target.files?.[0];
+
+            if (!file) {
+                return;
             }
 
+            /*
+             * Your current FastAPI backend has
+             * PDF upload only.
+             *
+             * Vision will be connected later.
+             */
 
-            historyList.appendChild(
-                item
+            showUploadStatus(
+                "Vision/image analysis is not connected yet.",
+                true
             );
-
         }
-    );
-
-}
+    }
+);
 
 
 /* =========================================================
-   30. RESTORE CONVERSATION
-   ========================================================= */
-
-async function restoreConversation(
-    id
-) {
-
-    if (!currentUserId) {
-
-        return;
-
-    }
-
-
-    try {
-
-        const {
-            data,
-            error
-        } =
-            await supabaseClient
-                .from(
-                    "chat_conversations"
-                )
-                .select(
-                    "id, title, messages"
-                )
-                .eq(
-                    "id",
-                    id
-                )
-                .eq(
-                    "user_id",
-                    currentUserId
-                )
-                .single();
-
-
-        if (error) {
-
-            console.error(
-                "Restore conversation error:",
-                error
-            );
-
-            return;
-
-        }
-
-
-        if (!data) {
-
-            return;
-
-        }
-
-
-        currentConversationId =
-            data.id;
-
-
-        currentMessages =
-            Array.isArray(
-                data.messages
-            )
-                ? [
-                    ...data.messages
-                ]
-                : [];
-
-
-        if (chatbox) {
-
-            chatbox.innerHTML =
-                "";
-
-        }
-
-
-        currentMessages.forEach(
-            function (message) {
-
-                if (
-                    message &&
-                    message.role &&
-                    typeof message.content !==
-                        "undefined"
-                ) {
-
-                    addMessage(
-                        message.role,
-                        message.content
-                    );
-
-                }
-
-            }
-        );
-
-
-        showSection(
-            "chat"
-        );
-
-
-        if (userInput) {
-
-            userInput.focus();
-
-        }
-
-    } catch (error) {
-
-        console.error(
-            "Restore conversation exception:",
-            error
-        );
-
-    }
-
-}
-
-
-/* =========================================================
-   31. CLEAR HISTORY
-   ========================================================= */
-
-async function clearChatHistory() {
-
-    if (!currentUserId) {
-
-        return;
-
-    }
-
-
-    const confirmed =
-        confirm(
-            "Are you sure you want to permanently delete your chat history?"
-        );
-
-
-    if (!confirmed) {
-
-        return;
-
-    }
-
-
-    try {
-
-        const {
-            error
-        } =
-            await supabaseClient
-                .from(
-                    "chat_conversations"
-                )
-                .delete()
-                .eq(
-                    "user_id",
-                    currentUserId
-                );
-
-
-        if (error) {
-
-            console.error(
-                "Delete history error:",
-                error
-            );
-
-            alert(
-                "Could not clear chat history."
-            );
-
-            return;
-
-        }
-
-
-        currentMessages =
-            [];
-
-        currentConversationId =
-            null;
-
-
-        resetChatboxToWelcome();
-
-
-        await loadHistoryList();
-
-    } catch (error) {
-
-        console.error(
-            "Delete history exception:",
-            error
-        );
-
-        alert(
-            "Something went wrong while clearing history."
-        );
-
-    }
-
-}
-
-
-/* =========================================================
-   32. SECTION NAVIGATION
+   NAVIGATION
    ========================================================= */
 
 function showSection(
     section
 ) {
 
-    const sections = {
+    currentSection =
+        section;
 
-        chat:
-            document.getElementById(
-                "chatSection"
-            ),
+    const sections = [
+        "chat",
+        "history",
+        "documents",
+        "vision",
+        "hardware",
+        "settings"
+    ];
 
-        history:
-            document.getElementById(
-                "historySection"
-            ),
+    sections.forEach(name => {
 
-        documents:
-            document.getElementById(
-                "documentsSection"
-            ),
+        const element =
+            $(name + "Section");
 
-        vision:
-            document.getElementById(
-                "visionSection"
-            ),
-
-        hardware:
-            document.getElementById(
-                "hardwareSection"
-            ),
-
-        settings:
-            document.getElementById(
-                "settingsSection"
-            )
-
-    };
-
-
-    Object.values(
-        sections
-    ).forEach(
-        function (element) {
-
-            if (element) {
-
-                element.classList.remove(
-                    "active"
-                );
-
-            }
-
+        if (!element) {
+            return;
         }
-    );
+
+        element.classList.toggle(
+            "active",
+            name === section
+        );
+    });
 
 
-    if (
-        sections[section]
-    ) {
-
-        sections[section]
-            .classList.add(
-                "active"
-            );
-
-    }
-
-
-    if (
-        section ===
-        "history"
-    ) {
-
-        loadHistoryList();
-
-    }
-
-
-    if (
-        section ===
-        "documents"
-    ) {
-
-        loadDocumentsList();
-
-    }
-
+    /*
+     * Sidebar buttons
+     */
 
     const navItems =
         document.querySelectorAll(
             ".nav-item"
         );
 
+    navItems.forEach(button => {
 
-    navItems.forEach(
-        function (item) {
+        const onclick =
+            button.getAttribute(
+                "onclick"
+            ) || "";
 
-            item.classList.remove(
-                "active"
-            );
-
-        }
-    );
-
-
-    const sectionIndex = {
-
-        chat: 0,
-
-        history: 1,
-
-        documents: 2,
-
-        vision: 3,
-
-        hardware: 4,
-
-        settings: 5
-
-    };
+        button.classList.toggle(
+            "active",
+            onclick.includes(
+                "'" + section + "'"
+            )
+        );
+    });
 
 
-    const index =
-        sectionIndex[section];
-
-
-    if (
-        index !== undefined &&
-        navItems[index]
-    ) {
-
-        navItems[index]
-            .classList.add(
-                "active"
-            );
-
-    }
-
+    /*
+     * Page titles
+     */
 
     const titles = {
 
-        chat: [
-            "AI Chat",
-            "Your personal AI assistant"
-        ],
+        chat: {
+            title: "AI Chat",
+            subtitle:
+                "Your personal AI assistant"
+        },
 
-        history: [
-            "Chat History",
-            "Your previous conversations"
-        ],
+        history: {
+            title: "Chat History",
+            subtitle:
+                "Your previous conversations"
+        },
 
-        documents: [
-            "Documents",
-            "Your AI knowledge base"
-        ],
+        documents: {
+            title: "Documents",
+            subtitle:
+                "Your personal AI knowledge base"
+        },
 
-        vision: [
-            "Vision",
-            "Image understanding"
-        ],
+        vision: {
+            title: "Vision",
+            subtitle:
+                "Image understanding"
+        },
 
-        hardware: [
-            "Hardware",
-            "Connect your AI assistant to hardware"
-        ],
+        hardware: {
+            title: "Hardware",
+            subtitle:
+                "Connect your AI assistant to hardware"
+        },
 
-        settings: [
-            "Settings",
-            "Manage your assistant"
-        ]
-
+        settings: {
+            title: "Settings",
+            subtitle:
+                "Manage your assistant"
+        }
     };
 
+    const page =
+        titles[section] ||
+        titles.chat;
 
-    const titleData =
-        titles[section];
-
-
-    if (titleData) {
-
-        const pageTitle =
-            document.getElementById(
-                "pageTitle"
-            );
-
-        const pageSubtitle =
-            document.getElementById(
-                "pageSubtitle"
-            );
-
-
-        if (pageTitle) {
-
-            pageTitle.textContent =
-                titleData[0];
-
-        }
-
-
-        if (pageSubtitle) {
-
-            pageSubtitle.textContent =
-                titleData[1];
-
-        }
-
+    if ($("pageTitle")) {
+        $("pageTitle").textContent =
+            page.title;
     }
 
+    if ($("pageSubtitle")) {
+        $("pageSubtitle").textContent =
+            page.subtitle;
+    }
+
+
+    /*
+     * Special section actions
+     */
+
+    if (section === "history") {
+        loadLocalHistory();
+    }
+
+    if (section === "documents") {
+        loadDocumentsList();
+    }
+
+
+    /*
+     * Close mobile sidebar
+     */
 
     closeSidebar();
-
 }
 
 
 /* =========================================================
-   33. SIDEBAR
+   ATTACHMENT MENU
    ========================================================= */
 
-function toggleSidebar() {
+function toggleAttachmentMenu() {
 
-    document.body.classList.toggle(
-        "sidebar-open"
-    );
+    const menu =
+        $("attachmentMenu");
 
-}
-
-
-function openSidebar() {
-
-    document.body.classList.add(
-        "sidebar-open"
-    );
-
-}
-
-
-function closeSidebar() {
-
-    document.body.classList.remove(
-        "sidebar-open"
-    );
-
-}
-
-
-/* =========================================================
-   34. TEXTAREA
-   ========================================================= */
-
-function autoResizeInput() {
-
-    if (!userInput) {
-
+    if (!menu) {
         return;
-
     }
 
-
-    userInput.style.height =
-        "auto";
-
-
-    userInput.style.height =
-        Math.min(
-            userInput.scrollHeight,
-            180
-        ) + "px";
-
+    menu.classList.toggle(
+        "show"
+    );
 }
 
-
-/* =========================================================
-   35. SCROLL
-   ========================================================= */
-
-function scrollToBottom() {
-
-    if (!chatbox) {
-
-        return;
-
-    }
-
-
-    chatbox.scrollTop =
-        chatbox.scrollHeight;
-
-}
-
-
-/* =========================================================
-   36. ESCAPE HTML
-   ========================================================= */
-
-function escapeHTML(value) {
-
-    const div =
-        document.createElement(
-            "div"
-        );
-
-
-    div.textContent =
-        value == null
-            ? ""
-            : String(value);
-
-
-    return div.innerHTML;
-
-}
-
-
-/* =========================================================
-   37. CLOSE ATTACHMENT MENU
-   ========================================================= */
 
 document.addEventListener(
     "click",
-    function (event) {
+    (event) => {
 
-        if (!attachmentMenu) {
+        const menu =
+            $("attachmentMenu");
 
-            return;
-
-        }
-
-
-        const clickedInside =
-            attachmentMenu.contains(
-                event.target
-            );
-
-
-        const clickedButton =
-            event.target.closest(
+        const button =
+            document.querySelector(
                 ".attachment-btn"
             );
 
-
-        if (
-            !clickedInside &&
-            !clickedButton
-        ) {
-
-            attachmentMenu.classList.remove(
-                "show"
-            );
-
+        if (!menu) {
+            return;
         }
 
+        if (
+            !menu.contains(event.target) &&
+            event.target !== button
+        ) {
+
+            menu.classList.remove(
+                "show"
+            );
+        }
     }
 );
 
 
 /* =========================================================
-   38. ESCAPE KEY
+   MOBILE SIDEBAR
+   ========================================================= */
+
+function toggleSidebar() {
+
+    const sidebar =
+        document.querySelector(
+            ".sidebar"
+        );
+
+    const overlay =
+        $("sidebarOverlay");
+
+    if (sidebar) {
+        sidebar.classList.toggle(
+            "open"
+        );
+    }
+
+    if (overlay) {
+        overlay.classList.toggle(
+            "show"
+        );
+    }
+}
+
+
+function closeSidebar() {
+
+    const sidebar =
+        document.querySelector(
+            ".sidebar"
+        );
+
+    const overlay =
+        $("sidebarOverlay");
+
+    if (sidebar) {
+        sidebar.classList.remove(
+            "open"
+        );
+    }
+
+    if (overlay) {
+        overlay.classList.remove(
+            "show"
+        );
+    }
+}
+
+
+/* =========================================================
+   TEXTAREA
+   ========================================================= */
+
+function setupInputEvents() {
+
+    const input =
+        $("userInput");
+
+    if (!input) {
+        return;
+    }
+
+    input.addEventListener(
+        "input",
+        autoResizeTextarea
+    );
+
+    input.addEventListener(
+        "keydown",
+        event => {
+
+            if (
+                event.key === "Enter" &&
+                !event.shiftKey
+            ) {
+
+                event.preventDefault();
+
+                sendMessage();
+            }
+        }
+    );
+}
+
+
+function autoResizeTextarea() {
+
+    const input =
+        $("userInput");
+
+    if (!input) {
+        return;
+    }
+
+    input.style.height =
+        "auto";
+
+    input.style.height =
+        Math.min(
+            input.scrollHeight,
+            160
+        ) + "px";
+}
+
+
+/* =========================================================
+   KEYBOARD SHORTCUT
    ========================================================= */
 
 document.addEventListener(
     "keydown",
-    function (event) {
+    event => {
+
+        /*
+         * Ctrl + K = focus chat
+         */
 
         if (
-            event.key ===
-            "Escape"
+            event.ctrlKey &&
+            event.key.toLowerCase() === "k"
         ) {
 
-            closeSidebar();
+            event.preventDefault();
 
+            const input =
+                $("userInput");
+
+            if (input) {
+                input.focus();
+            }
         }
-
     }
+);
+
+
+/* =========================================================
+   DEBUG FUNCTION
+   =========================================================
+   Useful from Chrome Console:
+   
+   testBackend()
+   
+   It checks the public backend endpoint.
+   ========================================================= */
+
+async function testBackend() {
+
+    try {
+
+        const response =
+            await fetch(
+                BACKEND_URL + "/"
+            );
+
+        const data =
+            await response.json();
+
+        console.log(
+            "BACKEND TEST:",
+            data
+        );
+
+        return data;
+
+    } catch (error) {
+
+        console.error(
+            "BACKEND TEST FAILED:",
+            error
+        );
+
+        return null;
+    }
+}
+
+
+/* =========================================================
+   DEBUG AUTH TOKEN
+   =========================================================
+   
+   IMPORTANT:
+   This prints only token length/prefix.
+   It does NOT print the complete token.
+   ========================================================= */
+
+async function testAuthToken() {
+
+    const token =
+        await getAccessToken();
+
+    if (!token) {
+
+        console.error(
+            "AUTH TEST: No access token."
+        );
+
+        return false;
+    }
+
+    console.log(
+        "AUTH TEST: Access token exists."
+    );
+
+    console.log(
+        "Token length:",
+        token.length
+    );
+
+    console.log(
+        "Token starts with:",
+        token.substring(0, 20) + "..."
+    );
+
+    /*
+     * A Supabase access token should NOT be:
+     *
+     * sb_publishable_...
+     *
+     * That is the public project key.
+     */
+
+    if (
+        token.startsWith(
+            "sb_publishable_"
+        )
+    ) {
+
+        console.error(
+            "ERROR: Publishable key is being used as access token."
+        );
+
+        return false;
+    }
+
+    return true;
+}
+
+
+/* =========================================================
+   DEBUG CHAT REQUEST
+   ========================================================= */
+
+async function testChatConnection() {
+
+    try {
+
+        console.log(
+            "Testing authenticated /chat..."
+        );
+
+        const response =
+            await backendRequest(
+                "/chat",
+                {
+                    method: "POST",
+
+                    body: JSON.stringify({
+                        message:
+                            "Hello"
+                    })
+                }
+            );
+
+        const data =
+            await response.json();
+
+        console.log(
+            "CHAT TEST RESULT:",
+            data
+        );
+
+        return data;
+
+    } catch (error) {
+
+        console.error(
+            "CHAT TEST FAILED:",
+            error
+        );
+
+        return null;
+    }
+}
+
+
+/* =========================================================
+   EXPORT DEBUG FUNCTIONS
+   ========================================================= */
+
+window.testBackend =
+    testBackend;
+
+window.testAuthToken =
+    testAuthToken;
+
+window.testChatConnection =
+    testChatConnection;
+
+window.getAccessToken =
+    getAccessToken;
+
+window.sendMessage =
+    sendMessage;
+
+window.newChat =
+    newChat;
+
+window.logoutUser =
+    logoutUser;
+
+window.loginUser =
+    loginUser;
+
+window.signupUser =
+    signupUser;
+
+window.showSection =
+    showSection;
+
+window.openAuthScreen =
+    openAuthScreen;
+
+window.backToWelcome =
+    backToWelcome;
+
+window.showAuthForm =
+    showAuthForm;
+
+window.selectPDF =
+    selectPDF;
+
+window.selectImage =
+    selectImage;
+
+window.toggleAttachmentMenu =
+    toggleAttachmentMenu;
+
+window.toggleSidebar =
+    toggleSidebar;
+
+window.closeSidebar =
+    closeSidebar;
+
+window.clearChatHistory =
+    clearChatHistory;
+
+
+/* =========================================================
+   STARTUP COMPLETE
+   ========================================================= */
+
+console.log(
+    "My AI Assistant script.js loaded successfully."
 );
