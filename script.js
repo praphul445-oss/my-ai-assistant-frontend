@@ -1,8 +1,7 @@
-```javascript
 /* =========================================================
    MY AI ASSISTANT
    Authentication + Chatbot + PDF/RAG + Supabase Cloud History
-   Hardware Status Integration (v9.2)
+   Hardware Status Integration (v9.3)
    ========================================================= */
 
 /* 1. SUPABASE */
@@ -97,6 +96,27 @@ document.addEventListener("DOMContentLoaded", async function () {
     userAvatar = document.getElementById("userAvatar");
     sidebarOverlay = document.getElementById("sidebarOverlay");
 
+    /*
+     * IMPORTANT FIX:
+     * The updated HTML forms no longer use inline onsubmit handlers.
+     * Register each submit handler here, exactly once.
+     */
+
+    const loginForm = document.getElementById("loginForm");
+    const signupForm = document.getElementById("signupForm");
+
+    if (loginForm) {
+        loginForm.addEventListener("submit", loginUser);
+    } else {
+        console.error("Login form not found.");
+    }
+
+    if (signupForm) {
+        signupForm.addEventListener("submit", signupUser);
+    } else {
+        console.error("Signup form not found.");
+    }
+
     if (pdfInput) {
         pdfInput.addEventListener("change", function () {
             if (pdfInput.files && pdfInput.files.length > 0) {
@@ -182,12 +202,14 @@ function resetChatboxToWelcome() {
 function openAuthScreen(form) {
     if (welcomeScreen) welcomeScreen.hidden = true;
     if (authScreen) authScreen.hidden = false;
+
     showAuthForm(form || "login");
 }
 
 function backToWelcome() {
     if (authScreen) authScreen.hidden = true;
     if (welcomeScreen) welcomeScreen.hidden = false;
+
     clearAuthMessage();
 }
 
@@ -209,6 +231,7 @@ function showApp(user) {
     }
 
     currentUserId = user.id;
+
     updateUserDisplay(user);
     autoResizeInput();
 
@@ -224,8 +247,13 @@ function updateUserDisplay(user) {
 
     const email = user.email || "User";
 
-    if (userEmail) userEmail.textContent = email;
-    if (userAvatar) userAvatar.textContent = email.charAt(0).toUpperCase();
+    if (userEmail) {
+        userEmail.textContent = email;
+    }
+
+    if (userAvatar) {
+        userAvatar.textContent = email.charAt(0).toUpperCase();
+    }
 }
 
 /* 11. AUTH FORMS */
@@ -262,7 +290,9 @@ function showAuthMessage(message, type = "") {
     authMessage.textContent = message;
     authMessage.className = "auth-message";
 
-    if (type) authMessage.classList.add(type);
+    if (type) {
+        authMessage.classList.add(type);
+    }
 }
 
 function clearAuthMessage() {
@@ -309,12 +339,18 @@ async function loginUser(event) {
 
         if (error) {
             console.error("Login error:", error);
-            showAuthMessage(error.message || "Login failed.", "error");
+            showAuthMessage(
+                error.message || "Login failed.",
+                "error"
+            );
             return;
         }
 
         if (!data || !data.user) {
-            showAuthMessage("Login failed: no user session was returned.", "error");
+            showAuthMessage(
+                "Login failed: no user session was returned.",
+                "error"
+            );
             return;
         }
 
@@ -322,7 +358,11 @@ async function loginUser(event) {
         showApp(data.user);
     } catch (error) {
         console.error("Login exception:", error);
-        showAuthMessage(error.message || "Something went wrong while logging in.", "error");
+
+        showAuthMessage(
+            error.message || "Something went wrong while logging in.",
+            "error"
+        );
     } finally {
         if (loginButton) {
             loginButton.disabled = false;
@@ -355,7 +395,10 @@ async function signupUser(event) {
     }
 
     if (password.length < 6) {
-        showAuthMessage("Password must be at least 6 characters.", "error");
+        showAuthMessage(
+            "Password must be at least 6 characters.",
+            "error"
+        );
         return;
     }
 
@@ -380,7 +423,11 @@ async function signupUser(event) {
 
         if (error) {
             console.error("Signup error:", error);
-            showAuthMessage(error.message || "Account creation failed.", "error");
+
+            showAuthMessage(
+                error.message || "Account creation failed.",
+                "error"
+            );
             return;
         }
 
@@ -398,6 +445,7 @@ async function signupUser(event) {
         }
     } catch (error) {
         console.error("Signup exception:", error);
+
         showAuthMessage(
             error.message || "Something went wrong while creating your account.",
             "error"
@@ -428,8 +476,12 @@ async function logoutUser() {
 
         showLoginScreen();
 
-        const passwordElement = document.getElementById("loginPassword");
-        if (passwordElement) passwordElement.value = "";
+        const passwordElement =
+            document.getElementById("loginPassword");
+
+        if (passwordElement) {
+            passwordElement.value = "";
+        }
     } catch (error) {
         console.error("Logout exception:", error);
         alert("Something went wrong while logging out.");
@@ -442,6 +494,7 @@ async function sendMessage() {
     if (!userInput) return;
 
     const message = userInput.value.trim();
+
     if (!message) return;
 
     if (!currentUserId) {
@@ -452,12 +505,17 @@ async function sendMessage() {
     toggleAttachmentMenu(false);
 
     if (sendButton) sendButton.disabled = true;
+
     userInput.disabled = true;
 
     const wasNewConversation = !currentConversationId;
 
     addMessage("user", message);
-    currentMessages.push({ role: "user", content: message });
+
+    currentMessages.push({
+        role: "user",
+        content: message
+    });
 
     userInput.value = "";
     autoResizeInput();
@@ -478,7 +536,9 @@ async function sendMessage() {
                 "Content-Type": "application/json",
                 "Authorization": "Bearer " + token
             },
-            body: JSON.stringify({ message: message })
+            body: JSON.stringify({
+                message: message
+            })
         });
 
         if (response.status === 401) {
@@ -499,7 +559,11 @@ async function sendMessage() {
             "I couldn't generate a response.";
 
         updateMessage(thinkingMessage, reply);
-        currentMessages.push({ role: "assistant", content: reply });
+
+        currentMessages.push({
+            role: "assistant",
+            content: reply
+        });
 
         if (wasNewConversation) {
             await createConversation(message);
@@ -508,10 +572,22 @@ async function sendMessage() {
         }
     } catch (error) {
         console.error("Chat error:", error);
-        updateMessage(thinkingMessage, "Sorry, I couldn't connect to the AI server.");
-        currentMessages = currentMessages.slice(0, -1);
+
+        updateMessage(
+            thinkingMessage,
+            "Sorry, I couldn't connect to the AI server."
+        );
+
+        // Remove the failed user message from the current in-memory history.
+        if (
+            currentMessages.length > 0 &&
+            currentMessages[currentMessages.length - 1].role === "user"
+        ) {
+            currentMessages.pop();
+        }
     } finally {
         if (sendButton) sendButton.disabled = false;
+
         userInput.disabled = false;
         userInput.focus();
     }
@@ -523,7 +599,9 @@ function addMessage(role, content) {
     const messageDiv = document.createElement("div");
 
     messageDiv.className =
-        role === "user" ? "message user-message" : "message ai-message";
+        role === "user"
+            ? "message user-message"
+            : "message ai-message";
 
     const contentDiv = document.createElement("div");
     contentDiv.className = "message-content";
@@ -531,9 +609,12 @@ function addMessage(role, content) {
 
     messageDiv.appendChild(contentDiv);
 
-    if (chatbox) chatbox.appendChild(messageDiv);
+    if (chatbox) {
+        chatbox.appendChild(messageDiv);
+    }
 
     scrollToBottom();
+
     return messageDiv;
 }
 
@@ -556,16 +637,20 @@ function addTypingIndicator() {
     contentDiv.appendChild(dots);
     messageDiv.appendChild(contentDiv);
 
-    if (chatbox) chatbox.appendChild(messageDiv);
+    if (chatbox) {
+        chatbox.appendChild(messageDiv);
+    }
 
     scrollToBottom();
+
     return messageDiv;
 }
 
 function updateMessage(messageElement, content) {
     if (!messageElement) return;
 
-    const contentDiv = messageElement.querySelector(".message-content");
+    const contentDiv =
+        messageElement.querySelector(".message-content");
 
     if (contentDiv) {
         contentDiv.textContent = content;
@@ -588,13 +673,20 @@ function selectPDF() {
 async function uploadPDF(file) {
     if (!file) return;
 
-    if (file.type !== "application/pdf") {
+    const isPDF =
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf");
+
+    if (!isPDF) {
         showUploadStatus("Please select a PDF file.", "error");
         return;
     }
 
     if (!currentUserId) {
-        showUploadStatus("Please log in again before uploading.", "error");
+        showUploadStatus(
+            "Please log in again before uploading.",
+            "error"
+        );
         return;
     }
 
@@ -613,7 +705,9 @@ async function uploadPDF(file) {
 
         const response = await fetch(BACKEND_URL + "/upload", {
             method: "POST",
-            headers: { "Authorization": "Bearer " + token },
+            headers: {
+                "Authorization": "Bearer " + token
+            },
             body: formData
         });
 
@@ -623,23 +717,39 @@ async function uploadPDF(file) {
         }
 
         if (!response.ok) {
-            throw new Error("Upload failed with status " + response.status);
+            throw new Error(
+                "Upload failed with status " + response.status
+            );
         }
 
         const data = await response.json();
 
+        const successful =
+            data.success === true ||
+            data.status === "success";
+
         showUploadStatus(
             data.message ||
-                (data.success ? "PDF uploaded successfully." : "Upload failed."),
-            data.success ? "success" : "error"
+                (successful
+                    ? "PDF uploaded successfully."
+                    : "Upload completed, but the server did not confirm success."),
+            successful ? "success" : "error"
         );
 
-        if (data.success) loadDocumentsList();
+        if (successful) {
+            loadDocumentsList();
+        }
     } catch (error) {
         console.error("PDF upload error:", error);
-        showUploadStatus("PDF upload failed.", "error");
+
+        showUploadStatus(
+            "PDF upload failed. Please try again.",
+            "error"
+        );
     } finally {
-        pdfInput.value = "";
+        if (pdfInput) {
+            pdfInput.value = "";
+        }
     }
 }
 
@@ -656,12 +766,22 @@ function documentsEmptyState(title, text) {
 }
 
 async function loadDocumentsList() {
+    /*
+     * The supplied index.html currently contains a documents-container
+     * placeholder but does not contain an element with id="documentsList".
+     * Do not attempt to update an element that is not present.
+     */
+
     const list = document.getElementById("documentsList");
+
     if (!list || !currentUserId) return;
 
     const userAtStart = currentUserId;
 
-    list.innerHTML = documentsEmptyState("Loading...", "Getting your documents.");
+    list.innerHTML = documentsEmptyState(
+        "Loading...",
+        "Getting your documents."
+    );
 
     try {
         const token = await getAccessToken();
@@ -673,7 +793,9 @@ async function loadDocumentsList() {
 
         const response = await fetch(BACKEND_URL + "/documents", {
             method: "GET",
-            headers: { "Authorization": "Bearer " + token }
+            headers: {
+                "Authorization": "Bearer " + token
+            }
         });
 
         if (response.status === 401) {
@@ -682,14 +804,19 @@ async function loadDocumentsList() {
         }
 
         if (!response.ok) {
-            throw new Error("Server returned " + response.status);
+            throw new Error(
+                "Server returned " + response.status
+            );
         }
 
         const data = await response.json();
 
         if (currentUserId !== userAtStart) return;
 
-        const documents = Array.isArray(data.documents) ? data.documents : [];
+        const documents =
+            Array.isArray(data.documents)
+                ? data.documents
+                : [];
 
         if (documents.length === 0) {
             list.innerHTML = documentsEmptyState(
@@ -705,14 +832,22 @@ async function loadDocumentsList() {
             const item = document.createElement("div");
             item.className = "document-item";
 
+            const chunks = Number(doc.chunks) || 0;
+
             const chunkText =
-                doc.chunks === 1 ? "1 section" : doc.chunks + " sections";
+                chunks === 1
+                    ? "1 section"
+                    : chunks + " sections";
 
             item.innerHTML = `
                 <div class="document-icon">📄</div>
                 <div class="document-item-main">
-                    <div class="document-name">${escapeHTML(doc.filename)}</div>
-                    <div class="document-meta">${escapeHTML(chunkText)}</div>
+                    <div class="document-name">
+                        ${escapeHTML(doc.filename)}
+                    </div>
+                    <div class="document-meta">
+                        ${escapeHTML(chunkText)}
+                    </div>
                 </div>
             `;
 
@@ -720,6 +855,7 @@ async function loadDocumentsList() {
         });
     } catch (error) {
         console.error("Load documents error:", error);
+
         list.innerHTML = documentsEmptyState(
             "Could not load documents",
             "Please try again in a moment."
@@ -730,15 +866,12 @@ async function loadDocumentsList() {
 /* 19. HARDWARE STATUS */
 
 async function loadHardwareStatus() {
-    const hardwareSection = document.getElementById("hardwareSection");
+    const hardwareSection =
+        document.getElementById("hardwareSection");
 
     if (!hardwareSection || !currentUserId) return;
 
     const userAtStart = currentUserId;
-
-    // This ID matches the badge in your supplied index.html.
-    const badgeElement =
-        document.getElementById("hardwareConnectionBadge");
 
     const backendElement =
         document.getElementById("hardwareBackendStatus");
@@ -754,10 +887,21 @@ async function loadHardwareStatus() {
 
     setHardwareBadge("Checking...", "checking");
 
-    if (backendElement) backendElement.textContent = "Checking...";
-    if (lastSeenElement) lastSeenElement.textContent = "Checking...";
-    if (microphoneElement) microphoneElement.textContent = "Planned";
-    if (audioElement) audioElement.textContent = "Planned";
+    if (backendElement) {
+        backendElement.textContent = "Checking...";
+    }
+
+    if (lastSeenElement) {
+        lastSeenElement.textContent = "Checking...";
+    }
+
+    if (microphoneElement) {
+        microphoneElement.textContent = "Planned";
+    }
+
+    if (audioElement) {
+        audioElement.textContent = "Planned";
+    }
 
     try {
         const token = await getAccessToken();
@@ -767,12 +911,15 @@ async function loadHardwareStatus() {
             return;
         }
 
-        const response = await fetch(BACKEND_URL + "/hardware/status", {
-            method: "GET",
-            headers: {
-                "Authorization": "Bearer " + token
+        const response = await fetch(
+            BACKEND_URL + "/hardware/status",
+            {
+                method: "GET",
+                headers: {
+                    "Authorization": "Bearer " + token
+                }
             }
-        });
+        );
 
         if (response.status === 401) {
             await handleSessionExpired();
@@ -780,7 +927,10 @@ async function loadHardwareStatus() {
         }
 
         if (!response.ok) {
-            throw new Error("Hardware status request failed: " + response.status);
+            throw new Error(
+                "Hardware status request failed: " +
+                response.status
+            );
         }
 
         const data = await response.json();
@@ -789,7 +939,8 @@ async function loadHardwareStatus() {
         if (currentUserId !== userAtStart) return;
 
         const connected =
-            data.status === "connected" && data.verified === true;
+            data.status === "connected" &&
+            data.verified === true;
 
         setHardwareBadge(
             connected ? "Connected" : "Not connected",
@@ -797,11 +948,13 @@ async function loadHardwareStatus() {
         );
 
         if (backendElement) {
-            backendElement.textContent = data.verified ? "Verified" : "Not verified";
+            backendElement.textContent =
+                data.verified ? "Verified" : "Not verified";
         }
 
         if (lastSeenElement) {
-            lastSeenElement.textContent = formatHardwareLastSeen(data.last_seen);
+            lastSeenElement.textContent =
+                formatHardwareLastSeen(data.last_seen);
         }
 
         if (microphoneElement) {
@@ -824,14 +977,20 @@ async function loadHardwareStatus() {
 
         setHardwareBadge("Status unavailable", "error");
 
-        if (backendElement) backendElement.textContent = "Could not verify";
-        if (lastSeenElement) lastSeenElement.textContent = "Unavailable";
-    }
+        if (backendElement) {
+            backendElement.textContent = "Could not verify";
+        }
 
+        if (lastSeenElement) {
+            lastSeenElement.textContent = "Unavailable";
+        }
+    }
 }
 
 function setHardwareBadge(label, state) {
-    const badge = document.getElementById("hardwareConnectionBadge");
+    const badge =
+        document.getElementById("hardwareConnectionBadge");
+
     if (!badge) return;
 
     badge.replaceChildren();
@@ -890,7 +1049,9 @@ function handleImageSelected(file) {
         "loading"
     );
 
-    imageInput.value = "";
+    if (imageInput) {
+        imageInput.value = "";
+    }
 }
 
 /* 21. UPLOAD STATUS */
@@ -901,11 +1062,15 @@ function showUploadStatus(message, type = "") {
     uploadStatus.textContent = message;
     uploadStatus.className = "upload-status";
 
-    if (type) uploadStatus.classList.add(type);
+    if (type) {
+        uploadStatus.classList.add(type);
+    }
 
     if (type === "success") {
         setTimeout(function () {
-            if (uploadStatus) uploadStatus.textContent = "";
+            if (uploadStatus) {
+                uploadStatus.textContent = "";
+            }
         }, 5000);
     }
 }
@@ -944,10 +1109,22 @@ async function newChat() {
         const token = await getAccessToken();
 
         if (token) {
-            await fetch(BACKEND_URL + "/reset", {
-                method: "POST",
-                headers: { "Authorization": "Bearer " + token }
-            });
+            const response = await fetch(
+                BACKEND_URL + "/reset",
+                {
+                    method: "POST",
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                console.warn(
+                    "Backend reset returned:",
+                    response.status
+                );
+            }
         }
     } catch (error) {
         console.warn("Backend reset failed:", error);
@@ -960,7 +1137,10 @@ async function createConversation(firstMessage) {
     if (!currentUserId) return false;
 
     try {
-        const title = firstMessage.substring(0, 45) || "New Conversation";
+        const title =
+            firstMessage.substring(0, 45) ||
+            "New Conversation";
+
         const nowIso = new Date().toISOString();
 
         const { data, error } = await supabaseClient
@@ -975,15 +1155,23 @@ async function createConversation(firstMessage) {
             .single();
 
         if (error) {
-            console.error("Create conversation error:", error);
+            console.error(
+                "Create conversation error:",
+                error
+            );
             return false;
         }
 
         currentConversationId = data.id;
+
         loadHistoryList();
+
         return true;
     } catch (error) {
-        console.error("Create conversation exception:", error);
+        console.error(
+            "Create conversation exception:",
+            error
+        );
         return false;
     }
 }
@@ -991,7 +1179,9 @@ async function createConversation(firstMessage) {
 /* 25. UPDATE CLOUD CONVERSATION */
 
 async function updateCloudConversation() {
-    if (!currentUserId || !currentConversationId) return false;
+    if (!currentUserId || !currentConversationId) {
+        return false;
+    }
 
     try {
         const { error } = await supabaseClient
@@ -1004,14 +1194,21 @@ async function updateCloudConversation() {
             .eq("user_id", currentUserId);
 
         if (error) {
-            console.error("Update conversation error:", error);
+            console.error(
+                "Update conversation error:",
+                error
+            );
             return false;
         }
 
         loadHistoryList();
+
         return true;
     } catch (error) {
-        console.error("Update conversation exception:", error);
+        console.error(
+            "Update conversation exception:",
+            error
+        );
         return false;
     }
 }
@@ -1024,7 +1221,9 @@ async function getHistories() {
     try {
         const { data, error } = await supabaseClient
             .from("chat_conversations")
-            .select("id, user_id, title, messages, created_at, updated_at")
+            .select(
+                "id, user_id, title, messages, created_at, updated_at"
+            )
             .eq("user_id", currentUserId)
             .order("updated_at", { ascending: false })
             .limit(30);
@@ -1036,7 +1235,10 @@ async function getHistories() {
 
         return data || [];
     } catch (error) {
-        console.error("Get history exception:", error);
+        console.error(
+            "Get history exception:",
+            error
+        );
         return [];
     }
 }
@@ -1044,7 +1246,8 @@ async function getHistories() {
 /* 27. LOAD HISTORY */
 
 async function loadHistoryList() {
-    const historyList = document.getElementById("historyList");
+    const historyList =
+        document.getElementById("historyList");
 
     if (!historyList || !currentUserId) return;
 
@@ -1071,23 +1274,37 @@ async function loadHistoryList() {
         item.className = "history-item";
 
         const date = conversation.updated_at
-            ? new Date(conversation.updated_at).toLocaleString()
+            ? new Date(
+                conversation.updated_at
+            ).toLocaleString()
             : "";
 
         item.innerHTML = `
             <div class="history-item-main">
-                <div class="history-title">${escapeHTML(conversation.title || "New Conversation")}</div>
-                <div class="history-date">${escapeHTML(date)}</div>
+                <div class="history-title">
+                    ${escapeHTML(
+                        conversation.title || "New Conversation"
+                    )}
+                </div>
+                <div class="history-date">
+                    ${escapeHTML(date)}
+                </div>
             </div>
-            <button class="history-open-btn" type="button">Open</button>
+            <button class="history-open-btn" type="button">
+                Open
+            </button>
         `;
 
-        const openButton = item.querySelector(".history-open-btn");
+        const openButton =
+            item.querySelector(".history-open-btn");
 
         if (openButton) {
-            openButton.addEventListener("click", function () {
-                restoreConversation(conversation.id);
-            });
+            openButton.addEventListener(
+                "click",
+                function () {
+                    restoreConversation(conversation.id);
+                }
+            );
         }
 
         historyList.appendChild(item);
@@ -1108,27 +1325,48 @@ async function restoreConversation(id) {
             .single();
 
         if (error) {
-            console.error("Restore conversation error:", error);
+            console.error(
+                "Restore conversation error:",
+                error
+            );
             return;
         }
 
         if (!data) return;
 
         currentConversationId = data.id;
-        currentMessages = Array.isArray(data.messages) ? [...data.messages] : [];
 
-        if (chatbox) chatbox.innerHTML = "";
+        currentMessages = Array.isArray(data.messages)
+            ? [...data.messages]
+            : [];
+
+        if (chatbox) {
+            chatbox.innerHTML = "";
+        }
 
         currentMessages.forEach(function (message) {
-            if (message && message.role && typeof message.content !== "undefined") {
-                addMessage(message.role, message.content);
+            if (
+                message &&
+                message.role &&
+                typeof message.content !== "undefined"
+            ) {
+                addMessage(
+                    message.role,
+                    message.content
+                );
             }
         });
 
         showSection("chat");
-        if (userInput) userInput.focus();
+
+        if (userInput) {
+            userInput.focus();
+        }
     } catch (error) {
-        console.error("Restore conversation exception:", error);
+        console.error(
+            "Restore conversation exception:",
+            error
+        );
     }
 }
 
@@ -1150,7 +1388,11 @@ async function clearChatHistory() {
             .eq("user_id", currentUserId);
 
         if (error) {
-            console.error("Delete history error:", error);
+            console.error(
+                "Delete history error:",
+                error
+            );
+
             alert("Could not clear chat history.");
             return;
         }
@@ -1159,10 +1401,17 @@ async function clearChatHistory() {
         currentConversationId = null;
 
         resetChatboxToWelcome();
+
         await loadHistoryList();
     } catch (error) {
-        console.error("Delete history exception:", error);
-        alert("Something went wrong while clearing history.");
+        console.error(
+            "Delete history exception:",
+            error
+        );
+
+        alert(
+            "Something went wrong while clearing history."
+        );
     }
 }
 
@@ -1179,21 +1428,29 @@ function showSection(section) {
     };
 
     Object.values(sections).forEach(function (element) {
-        if (element) element.classList.remove("active");
+        if (element) {
+            element.classList.remove("active");
+        }
     });
 
     if (sections[section]) {
         sections[section].classList.add("active");
     }
 
-    if (section === "history") loadHistoryList();
-    if (section === "documents") loadDocumentsList();
+    if (section === "history") {
+        loadHistoryList();
+    }
+
+    if (section === "documents") {
+        loadDocumentsList();
+    }
 
     if (section === "hardware") {
         loadHardwareStatus();
     }
 
-    const navItems = document.querySelectorAll(".nav-item");
+    const navItems =
+        document.querySelectorAll(".nav-item");
 
     navItems.forEach(function (item) {
         item.classList.remove("active");
@@ -1215,22 +1472,48 @@ function showSection(section) {
     }
 
     const titles = {
-        chat: ["AI Chat", "Your personal AI assistant"],
-        history: ["Chat History", "Your previous conversations"],
-        documents: ["Documents", "Your AI knowledge base"],
-        vision: ["Vision", "Image understanding"],
-        hardware: ["Hardware", "Connect your AI assistant to hardware"],
-        settings: ["Settings", "Manage your assistant"]
+        chat: [
+            "AI Chat",
+            "Your personal AI assistant"
+        ],
+        history: [
+            "Chat History",
+            "Your previous conversations"
+        ],
+        documents: [
+            "Documents",
+            "Your AI knowledge base"
+        ],
+        vision: [
+            "Vision",
+            "Image understanding"
+        ],
+        hardware: [
+            "Hardware",
+            "Connect your AI assistant to hardware"
+        ],
+        settings: [
+            "Settings",
+            "Manage your assistant"
+        ]
     };
 
     const titleData = titles[section];
 
     if (titleData) {
-        const pageTitle = document.getElementById("pageTitle");
-        const pageSubtitle = document.getElementById("pageSubtitle");
+        const pageTitle =
+            document.getElementById("pageTitle");
 
-        if (pageTitle) pageTitle.textContent = titleData[0];
-        if (pageSubtitle) pageSubtitle.textContent = titleData[1];
+        const pageSubtitle =
+            document.getElementById("pageSubtitle");
+
+        if (pageTitle) {
+            pageTitle.textContent = titleData[0];
+        }
+
+        if (pageSubtitle) {
+            pageSubtitle.textContent = titleData[1];
+        }
     }
 
     closeSidebar();
@@ -1256,13 +1539,16 @@ function autoResizeInput() {
     if (!userInput) return;
 
     userInput.style.height = "auto";
-    userInput.style.height = Math.min(userInput.scrollHeight, 180) + "px";
+
+    userInput.style.height =
+        Math.min(userInput.scrollHeight, 180) + "px";
 }
 
 /* 33. SCROLL */
 
 function scrollToBottom() {
     if (!chatbox) return;
+
     chatbox.scrollTop = chatbox.scrollHeight;
 }
 
@@ -1270,7 +1556,10 @@ function scrollToBottom() {
 
 function escapeHTML(value) {
     const div = document.createElement("div");
-    div.textContent = value == null ? "" : String(value);
+
+    div.textContent =
+        value == null ? "" : String(value);
+
     return div.innerHTML;
 }
 
@@ -1279,8 +1568,11 @@ function escapeHTML(value) {
 document.addEventListener("click", function (event) {
     if (!attachmentMenu) return;
 
-    const clickedInside = attachmentMenu.contains(event.target);
-    const clickedButton = event.target.closest(".attachment-btn");
+    const clickedInside =
+        attachmentMenu.contains(event.target);
+
+    const clickedButton =
+        event.target.closest(".attachment-btn");
 
     if (!clickedInside && !clickedButton) {
         attachmentMenu.classList.remove("show");
@@ -1294,4 +1586,3 @@ document.addEventListener("keydown", function (event) {
         closeSidebar();
     }
 });
-```
