@@ -1,13 +1,12 @@
 /* =========================================================
    MY AI ASSISTANT
    Authentication + Chatbot + PDF/RAG + Supabase Cloud History
-   Hardware Status Integration (v9.3)
+   Hardware Pairing + Hardware Status (v10.0)
    ========================================================= */
 
 /* 1. SUPABASE */
 
-const SUPABASE_URL =
-    "https://jjuuilevlddifxoitffp.supabase.co";
+const SUPABASE_URL = "https://jjuuilevlddifxoitffp.supabase.co";
 
 const SUPABASE_PUBLISHABLE_KEY =
     "sb_publishable_eQFWdaObL0JtrBmkwqJ_sw_lzbtjt-I";
@@ -28,11 +27,12 @@ async function getAccessToken() {
     const { data, error } =
         await supabaseClient.auth.getSession();
 
-    if (error || !data || !data.session) {
+    if (error) {
+        console.error("Session retrieval error:", error);
         return null;
     }
 
-    return data.session.access_token;
+    return data?.session?.access_token || null;
 }
 
 async function handleSessionExpired() {
@@ -43,6 +43,7 @@ async function handleSessionExpired() {
     }
 
     showLoginScreen();
+
     alert("Your session expired. Please log in again.");
 }
 
@@ -71,6 +72,13 @@ let currentUserId = null;
 let currentMessages = [];
 let currentConversationId = null;
 
+let hardwarePairingExpiryTimer = null;
+let hardwarePairingExpiresAt = null;
+let hardwarePairingCodeValue = null;
+
+let hardwarePairingRequestInProgress = false;
+let hardwareStatusRequestInProgress = false;
+
 const LOGO_SRC =
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'%3E%3Cline x1='30' y1='6' x2='30' y2='20'/%3E%3Cline x1='50' y1='6' x2='50' y2='20'/%3E%3Cline x1='70' y1='6' x2='70' y2='20'/%3E%3Cline x1='30' y1='80' x2='30' y2='94'/%3E%3Cline x1='50' y1='80' x2='50' y2='94'/%3E%3Cline x1='70' y1='80' x2='70' y2='94'/%3E%3Cline x1='6' y1='30' x2='20' y2='30'/%3E%3Cline x1='6' y1='50' x2='20' y2='50'/%3E%3Cline x1='6' y1='70' x2='20' y2='70'/%3E%3Cline x1='80' y1='30' x2='94' y2='30'/%3E%3Cline x1='80' y1='50' x2='94' y2='50'/%3E%3Cline x1='80' y1='70' x2='94' y2='70'/%3E%3C/g%3E%3Crect x='20' y='20' width='60' height='60' rx='10' fill='%230b0f14' stroke='%2300e5ff' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='10' fill='none' stroke='%2300e5ff' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='4' fill='%2339ff8c'/%3E%3Cline x1='50' y1='32' x2='50' y2='40' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='50' y1='60' x2='50' y2='68' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='32' y1='50' x2='40' y2='50' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='60' y1='50' x2='68' y2='50' stroke='%2339ff8c' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E";
 
@@ -96,30 +104,54 @@ document.addEventListener("DOMContentLoaded", async function () {
     userAvatar = document.getElementById("userAvatar");
     sidebarOverlay = document.getElementById("sidebarOverlay");
 
-    /*
-     * IMPORTANT FIX:
-     * The updated HTML forms no longer use inline onsubmit handlers.
-     * Register each submit handler here, exactly once.
-     */
-
     const loginForm = document.getElementById("loginForm");
     const signupForm = document.getElementById("signupForm");
 
     if (loginForm) {
         loginForm.addEventListener("submit", loginUser);
-    } else {
-        console.error("Login form not found.");
     }
 
     if (signupForm) {
         signupForm.addEventListener("submit", signupUser);
+    }
+
+    const pairingButton =
+        document.getElementById("generateHardwarePairingCode");
+
+    const refreshButton =
+        document.getElementById("refreshHardwareStatus");
+
+    const copyButton =
+        document.getElementById("copyHardwarePairingCode");
+
+    if (pairingButton) {
+        pairingButton.addEventListener(
+            "click",
+            generateHardwarePairingCode
+        );
     } else {
-        console.error("Signup form not found.");
+        console.error(
+            "Hardware pairing button not found. Check the ID in index.html."
+        );
+    }
+
+    if (refreshButton) {
+        refreshButton.addEventListener(
+            "click",
+            loadHardwareStatus
+        );
+    }
+
+    if (copyButton) {
+        copyButton.addEventListener(
+            "click",
+            copyHardwarePairingCode
+        );
     }
 
     if (pdfInput) {
         pdfInput.addEventListener("change", function () {
-            if (pdfInput.files && pdfInput.files.length > 0) {
+            if (pdfInput.files?.length) {
                 uploadPDF(pdfInput.files[0]);
             }
         });
@@ -127,7 +159,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     if (imageInput) {
         imageInput.addEventListener("change", function () {
-            if (imageInput.files && imageInput.files.length > 0) {
+            if (imageInput.files?.length) {
                 handleImageSelected(imageInput.files[0]);
             }
         });
@@ -154,7 +186,7 @@ document.addEventListener("DOMContentLoaded", async function () {
             return;
         }
 
-        if (data && data.session && data.session.user) {
+        if (data?.session?.user) {
             showApp(data.session.user);
         } else {
             showLoginScreen();
@@ -176,6 +208,7 @@ function showLoginScreen() {
     currentConversationId = null;
     currentMessages = [];
 
+    clearHardwarePairingState();
     resetChatboxToWelcome();
     closeSidebar();
     clearAuthMessage();
@@ -216,7 +249,7 @@ function backToWelcome() {
 /* 9. SHOW APPLICATION */
 
 function showApp(user) {
-    if (!user || !user.id) return;
+    if (!user?.id) return;
 
     if (welcomeScreen) welcomeScreen.hidden = true;
     if (authScreen) authScreen.hidden = true;
@@ -227,6 +260,7 @@ function showApp(user) {
     if (differentUser) {
         currentMessages = [];
         currentConversationId = null;
+        clearHardwarePairingState();
         resetChatboxToWelcome();
     }
 
@@ -235,9 +269,7 @@ function showApp(user) {
     updateUserDisplay(user);
     autoResizeInput();
 
-    setTimeout(function () {
-        loadHistoryList();
-    }, 100);
+    setTimeout(loadHistoryList, 100);
 }
 
 /* 10. USER DISPLAY */
@@ -247,9 +279,7 @@ function updateUserDisplay(user) {
 
     const email = user.email || "User";
 
-    if (userEmail) {
-        userEmail.textContent = email;
-    }
+    if (userEmail) userEmail.textContent = email;
 
     if (userAvatar) {
         userAvatar.textContent = email.charAt(0).toUpperCase();
@@ -271,17 +301,12 @@ function showAuthForm(form) {
         return;
     }
 
-    if (form === "login") {
-        loginForm.classList.add("active");
-        signupForm.classList.remove("active");
-        loginTab.classList.add("active");
-        signupTab.classList.remove("active");
-    } else {
-        signupForm.classList.add("active");
-        loginForm.classList.remove("active");
-        signupTab.classList.add("active");
-        loginTab.classList.remove("active");
-    }
+    const isLogin = form === "login";
+
+    loginForm.classList.toggle("active", isLogin);
+    signupForm.classList.toggle("active", !isLogin);
+    loginTab.classList.toggle("active", isLogin);
+    signupTab.classList.toggle("active", !isLogin);
 }
 
 function showAuthMessage(message, type = "") {
@@ -290,9 +315,7 @@ function showAuthMessage(message, type = "") {
     authMessage.textContent = message;
     authMessage.className = "auth-message";
 
-    if (type) {
-        authMessage.classList.add(type);
-    }
+    if (type) authMessage.classList.add(type);
 }
 
 function clearAuthMessage() {
@@ -328,41 +351,32 @@ async function loginUser(event) {
         loginButton.textContent = "Logging in...";
     }
 
-    clearAuthMessage();
+    showAuthMessage("Signing you in...");
 
     try {
         const { data, error } =
             await supabaseClient.auth.signInWithPassword({
-                email: email,
-                password: password
+                email,
+                password
             });
 
         if (error) {
-            console.error("Login error:", error);
-            showAuthMessage(
-                error.message || "Login failed.",
-                "error"
-            );
+            showAuthMessage(error.message || "Login failed.", "error");
             return;
         }
 
-        if (!data || !data.user) {
+        if (data?.user) {
+            showAuthMessage("Login successful.", "success");
+            showApp(data.user);
+        } else {
             showAuthMessage(
-                "Login failed: no user session was returned.",
+                "Login succeeded, but no user session was returned.",
                 "error"
             );
-            return;
         }
-
-        showAuthMessage("Login successful.", "success");
-        showApp(data.user);
     } catch (error) {
-        console.error("Login exception:", error);
-
-        showAuthMessage(
-            error.message || "Something went wrong while logging in.",
-            "error"
-        );
+        console.error("Login error:", error);
+        showAuthMessage("Unable to log in. Please try again.", "error");
     } finally {
         if (loginButton) {
             loginButton.disabled = false;
@@ -371,7 +385,7 @@ async function loginUser(event) {
     }
 }
 
-/* 13. SIGN UP */
+/* 13. SIGNUP */
 
 async function signupUser(event) {
     event.preventDefault();
@@ -389,14 +403,14 @@ async function signupUser(event) {
     const password = passwordElement.value;
     const confirmPassword = confirmElement.value;
 
-    if (!email) {
-        showAuthMessage("Please enter your email.", "error");
+    if (!email || !password || !confirmPassword) {
+        showAuthMessage("Please fill in all fields.", "error");
         return;
     }
 
     if (password.length < 6) {
         showAuthMessage(
-            "Password must be at least 6 characters.",
+            "Password must contain at least 6 characters.",
             "error"
         );
         return;
@@ -412,42 +426,35 @@ async function signupUser(event) {
         signupButton.textContent = "Creating account...";
     }
 
-    clearAuthMessage();
+    showAuthMessage("Creating your account...");
 
     try {
         const { data, error } =
             await supabaseClient.auth.signUp({
-                email: email,
-                password: password
+                email,
+                password
             });
 
         if (error) {
-            console.error("Signup error:", error);
-
-            showAuthMessage(
-                error.message || "Account creation failed.",
-                "error"
-            );
+            showAuthMessage(error.message || "Signup failed.", "error");
             return;
         }
 
-        if (data && data.user && !data.session) {
-            showAuthMessage(
-                "Account created. Please verify your email before logging in.",
-                "success"
-            );
-            return;
-        }
-
-        if (data && data.session && data.user) {
+        if (data?.session && data?.user) {
             showAuthMessage("Account created successfully.", "success");
             showApp(data.user);
+        } else {
+            showAuthMessage(
+                "Account created. Check your email to confirm your account, then log in.",
+                "success"
+            );
+
+            showAuthForm("login");
         }
     } catch (error) {
-        console.error("Signup exception:", error);
-
+        console.error("Signup error:", error);
         showAuthMessage(
-            error.message || "Something went wrong while creating your account.",
+            "Unable to create your account. Please try again.",
             "error"
         );
     } finally {
@@ -461,61 +468,42 @@ async function signupUser(event) {
 /* 14. LOGOUT */
 
 async function logoutUser() {
+    if (!confirm("Are you sure you want to log out?")) return;
+
     try {
         const { error } = await supabaseClient.auth.signOut();
 
         if (error) {
             console.error("Logout error:", error);
-            alert("Logout failed. Please try again.");
+            alert("Unable to log out. Please try again.");
             return;
         }
 
-        currentUserId = null;
-        currentConversationId = null;
-        currentMessages = [];
-
         showLoginScreen();
-
-        const passwordElement =
-            document.getElementById("loginPassword");
-
-        if (passwordElement) {
-            passwordElement.value = "";
-        }
     } catch (error) {
         console.error("Logout exception:", error);
         alert("Something went wrong while logging out.");
     }
 }
 
-/* 15. SEND MESSAGE */
+/* 15. CHAT */
 
 async function sendMessage() {
     if (!userInput) return;
 
     const message = userInput.value.trim();
 
-    if (!message) return;
-
-    if (!currentUserId) {
-        console.warn("No logged-in user.");
-        return;
-    }
+    if (!message || !currentUserId) return;
 
     toggleAttachmentMenu(false);
 
     if (sendButton) sendButton.disabled = true;
-
     userInput.disabled = true;
 
     const wasNewConversation = !currentConversationId;
 
     addMessage("user", message);
-
-    currentMessages.push({
-        role: "user",
-        content: message
-    });
+    currentMessages.push({ role: "user", content: message });
 
     userInput.value = "";
     autoResizeInput();
@@ -536,9 +524,7 @@ async function sendMessage() {
                 "Content-Type": "application/json",
                 "Authorization": "Bearer " + token
             },
-            body: JSON.stringify({
-                message: message
-            })
+            body: JSON.stringify({ message })
         });
 
         if (response.status === 401) {
@@ -547,7 +533,11 @@ async function sendMessage() {
         }
 
         if (!response.ok) {
-            throw new Error("Server returned " + response.status);
+            const errorText = await response.text().catch(() => "");
+            throw new Error(
+                "Chat request failed (" + response.status + "). " +
+                errorText.slice(0, 250)
+            );
         }
 
         const data = await response.json();
@@ -560,10 +550,7 @@ async function sendMessage() {
 
         updateMessage(thinkingMessage, reply);
 
-        currentMessages.push({
-            role: "assistant",
-            content: reply
-        });
+        currentMessages.push({ role: "assistant", content: reply });
 
         if (wasNewConversation) {
             await createConversation(message);
@@ -575,19 +562,17 @@ async function sendMessage() {
 
         updateMessage(
             thinkingMessage,
-            "Sorry, I couldn't connect to the AI server."
+            "Sorry, I couldn't connect to the AI server. Please try again."
         );
 
-        // Remove the failed user message from the current in-memory history.
-        if (
-            currentMessages.length > 0 &&
-            currentMessages[currentMessages.length - 1].role === "user"
-        ) {
+        const lastMessage =
+            currentMessages[currentMessages.length - 1];
+
+        if (lastMessage?.role === "user") {
             currentMessages.pop();
         }
     } finally {
         if (sendButton) sendButton.disabled = false;
-
         userInput.disabled = false;
         userInput.focus();
     }
@@ -599,9 +584,7 @@ function addMessage(role, content) {
     const messageDiv = document.createElement("div");
 
     messageDiv.className =
-        role === "user"
-            ? "message user-message"
-            : "message ai-message";
+        role === "user" ? "message user-message" : "message ai-message";
 
     const contentDiv = document.createElement("div");
     contentDiv.className = "message-content";
@@ -609,9 +592,7 @@ function addMessage(role, content) {
 
     messageDiv.appendChild(contentDiv);
 
-    if (chatbox) {
-        chatbox.appendChild(messageDiv);
-    }
+    if (chatbox) chatbox.appendChild(messageDiv);
 
     scrollToBottom();
 
@@ -637,9 +618,7 @@ function addTypingIndicator() {
     contentDiv.appendChild(dots);
     messageDiv.appendChild(contentDiv);
 
-    if (chatbox) {
-        chatbox.appendChild(messageDiv);
-    }
+    if (chatbox) chatbox.appendChild(messageDiv);
 
     scrollToBottom();
 
@@ -705,9 +684,7 @@ async function uploadPDF(file) {
 
         const response = await fetch(BACKEND_URL + "/upload", {
             method: "POST",
-            headers: {
-                "Authorization": "Bearer " + token
-            },
+            headers: { "Authorization": "Bearer " + token },
             body: formData
         });
 
@@ -716,13 +693,15 @@ async function uploadPDF(file) {
             return;
         }
 
+        const data = await response.json().catch(() => ({}));
+
         if (!response.ok) {
             throw new Error(
+                data.detail ||
+                data.message ||
                 "Upload failed with status " + response.status
             );
         }
-
-        const data = await response.json();
 
         const successful =
             data.success === true ||
@@ -732,24 +711,19 @@ async function uploadPDF(file) {
             data.message ||
                 (successful
                     ? "PDF uploaded successfully."
-                    : "Upload completed, but the server did not confirm success."),
+                    : "Upload completed, but success was not confirmed."),
             successful ? "success" : "error"
         );
 
-        if (successful) {
-            loadDocumentsList();
-        }
+        if (successful) loadDocumentsList();
     } catch (error) {
         console.error("PDF upload error:", error);
-
         showUploadStatus(
-            "PDF upload failed. Please try again.",
+            error.message || "PDF upload failed. Please try again.",
             "error"
         );
     } finally {
-        if (pdfInput) {
-            pdfInput.value = "";
-        }
+        if (pdfInput) pdfInput.value = "";
     }
 }
 
@@ -766,12 +740,6 @@ function documentsEmptyState(title, text) {
 }
 
 async function loadDocumentsList() {
-    /*
-     * The supplied index.html currently contains a documents-container
-     * placeholder but does not contain an element with id="documentsList".
-     * Do not attempt to update an element that is not present.
-     */
-
     const list = document.getElementById("documentsList");
 
     if (!list || !currentUserId) return;
@@ -792,10 +760,7 @@ async function loadDocumentsList() {
         }
 
         const response = await fetch(BACKEND_URL + "/documents", {
-            method: "GET",
-            headers: {
-                "Authorization": "Bearer " + token
-            }
+            headers: { "Authorization": "Bearer " + token }
         });
 
         if (response.status === 401) {
@@ -804,21 +769,18 @@ async function loadDocumentsList() {
         }
 
         if (!response.ok) {
-            throw new Error(
-                "Server returned " + response.status
-            );
+            throw new Error("Server returned " + response.status);
         }
 
         const data = await response.json();
 
         if (currentUserId !== userAtStart) return;
 
-        const documents =
-            Array.isArray(data.documents)
-                ? data.documents
-                : [];
+        const documents = Array.isArray(data.documents)
+            ? data.documents
+            : [];
 
-        if (documents.length === 0) {
+        if (!documents.length) {
             list.innerHTML = documentsEmptyState(
                 "No documents yet",
                 "Upload a PDF to add it to your knowledge base."
@@ -833,21 +795,15 @@ async function loadDocumentsList() {
             item.className = "document-item";
 
             const chunks = Number(doc.chunks) || 0;
-
-            const chunkText =
-                chunks === 1
-                    ? "1 section"
-                    : chunks + " sections";
+            const chunkText = chunks === 1
+                ? "1 section"
+                : chunks + " sections";
 
             item.innerHTML = `
                 <div class="document-icon">📄</div>
                 <div class="document-item-main">
-                    <div class="document-name">
-                        ${escapeHTML(doc.filename)}
-                    </div>
-                    <div class="document-meta">
-                        ${escapeHTML(chunkText)}
-                    </div>
+                    <div class="document-name">${escapeHTML(doc.filename)}</div>
+                    <div class="document-meta">${escapeHTML(chunkText)}</div>
                 </div>
             `;
 
@@ -863,13 +819,109 @@ async function loadDocumentsList() {
     }
 }
 
-/* 19. HARDWARE STATUS */
+/* 19. HARDWARE UI HELPERS */
+
+function setHardwareBadge(label, state) {
+    const badge = document.getElementById("hardwareConnectionBadge");
+    if (!badge) return;
+
+    const colors = {
+        online: "#39ff8c",
+        offline: "#ff5c6c",
+        checking: "#ffc66d",
+        error: "#ff5c6c",
+        default: "#8a97a6"
+    };
+
+    const color = colors[state] || colors.default;
+
+    badge.replaceChildren();
+
+    const dot = document.createElement("span");
+    dot.className = "hardware-status-dot";
+    dot.style.backgroundColor = color;
+
+    const text = document.createElement("span");
+    text.textContent = label;
+
+    badge.append(dot, text);
+    badge.style.color = color;
+}
+
+function setHardwareNotice(message, type = "") {
+    const notice = document.getElementById("hardwareNotice");
+    if (!notice) return;
+
+    notice.textContent = message;
+
+    notice.style.borderLeftColor =
+        type === "error" ? "#ff5c6c" :
+        type === "success" ? "#39ff8c" :
+        "#00e5ff";
+}
+
+function formatHardwareLastSeen(value) {
+    if (!value) return "No activity yet";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "Unknown";
+
+    return date.toLocaleString();
+}
+
+function formatHardwareComponentStatus(value) {
+    if (value === true) return "Connected";
+    if (value === false) return "Not detected";
+
+    if (typeof value === "string" && value.trim()) {
+        return value.trim();
+    }
+
+    return "Not reported";
+}
+
+function clearHardwarePairingState() {
+    stopHardwarePairingCountdown();
+
+    hardwarePairingCodeValue = null;
+    hardwarePairingExpiresAt = null;
+
+    const panel = document.getElementById("hardwarePairingPanel");
+    const codeElement = document.getElementById("hardwarePairingCode");
+    const countdown = document.getElementById("hardwarePairingCountdown");
+
+    if (panel) panel.hidden = true;
+    if (codeElement) codeElement.textContent = "------";
+    if (countdown) countdown.textContent = "";
+}
+
+/* 20. LOAD HARDWARE STATUS */
 
 async function loadHardwareStatus() {
-    const hardwareSection =
-        document.getElementById("hardwareSection");
+    if (!currentUserId) {
+        setHardwareBadge("Not connected", "offline");
 
-    if (!hardwareSection || !currentUserId) return;
+        const backendElement =
+            document.getElementById("hardwareBackendStatus");
+
+        if (backendElement) {
+            backendElement.textContent = "Log in required";
+        }
+
+        setHardwareNotice(
+            "Log in to check hardware status or generate a pairing code."
+        );
+
+        return;
+    }
+
+    if (hardwareStatusRequestInProgress) return;
+
+    hardwareStatusRequestInProgress = true;
+
+    const refreshButton =
+        document.getElementById("refreshHardwareStatus");
 
     const userAtStart = currentUserId;
 
@@ -885,23 +937,14 @@ async function loadHardwareStatus() {
     const audioElement =
         document.getElementById("hardwareAudioStatus");
 
+    if (refreshButton) {
+        refreshButton.disabled = true;
+        refreshButton.textContent = "Checking...";
+    }
+
     setHardwareBadge("Checking...", "checking");
 
-    if (backendElement) {
-        backendElement.textContent = "Checking...";
-    }
-
-    if (lastSeenElement) {
-        lastSeenElement.textContent = "Checking...";
-    }
-
-    if (microphoneElement) {
-        microphoneElement.textContent = "Planned";
-    }
-
-    if (audioElement) {
-        audioElement.textContent = "Planned";
-    }
+    if (backendElement) backendElement.textContent = "Checking...";
 
     try {
         const token = await getAccessToken();
@@ -921,6 +964,8 @@ async function loadHardwareStatus() {
             }
         );
 
+        const data = await response.json().catch(() => ({}));
+
         if (response.status === 401) {
             await handleSessionExpired();
             return;
@@ -928,48 +973,78 @@ async function loadHardwareStatus() {
 
         if (!response.ok) {
             throw new Error(
-                "Hardware status request failed: " +
-                response.status
+                data.detail ||
+                data.message ||
+                "Hardware status request failed (" +
+                response.status +
+                ")."
             );
         }
 
-        const data = await response.json();
-
-        // Ignore stale results if the account changes during the request.
         if (currentUserId !== userAtStart) return;
 
-        const connected =
-            data.status === "connected" &&
-            data.verified === true;
+        const devices = Array.isArray(data.devices)
+            ? data.devices
+            : [];
+
+        const device =
+            data.device ||
+            devices.find(item =>
+                item.online === true || item.status === "online"
+            ) ||
+            devices[0] ||
+            data;
+
+        const online =
+            device.online === true ||
+            device.status === "online" ||
+            data.online === true ||
+            data.status === "online";
+
+        const verified =
+            device.verified === true ||
+            device.is_verified === true ||
+            data.verified === true ||
+            data.is_verified === true;
 
         setHardwareBadge(
-            connected ? "Connected" : "Not connected",
-            connected ? "connected" : "disconnected"
+            online ? "Online" : "Offline",
+            online ? "online" : "offline"
         );
 
         if (backendElement) {
             backendElement.textContent =
-                data.verified ? "Verified" : "Not verified";
+                verified ? "Verified" : "Not verified";
         }
 
         if (lastSeenElement) {
-            lastSeenElement.textContent =
-                formatHardwareLastSeen(data.last_seen);
+            lastSeenElement.textContent = formatHardwareLastSeen(
+                device.last_seen ||
+                device.last_heartbeat ||
+                device.last_activity ||
+                data.last_seen
+            );
         }
+
+        const components = device.components || {};
 
         if (microphoneElement) {
             microphoneElement.textContent =
-                formatHardwareComponentStatus(
-                    data.components?.microphone?.status
-                );
+                formatHardwareComponentStatus(components.microphone);
         }
 
         if (audioElement) {
             audioElement.textContent =
                 formatHardwareComponentStatus(
-                    data.components?.audio_output?.status
+                    components.audio ?? components.speaker
                 );
         }
+
+        setHardwareNotice(
+            online
+                ? "The backend reports that your device is online."
+                : "The backend responded, but your ESP32-S3 is not reported online. Generate a pairing code and complete pairing in the device firmware."
+        );
     } catch (error) {
         console.error("Hardware status error:", error);
 
@@ -978,61 +1053,316 @@ async function loadHardwareStatus() {
         setHardwareBadge("Status unavailable", "error");
 
         if (backendElement) {
-            backendElement.textContent = "Could not verify";
+            backendElement.textContent = "Request failed";
         }
 
-        if (lastSeenElement) {
-            lastSeenElement.textContent = "Unavailable";
+        setHardwareNotice(
+            "Could not load hardware status: " +
+            (error.message || "Unknown error") +
+            " Check the backend deployment and try again.",
+            "error"
+        );
+    } finally {
+        hardwareStatusRequestInProgress = false;
+
+        if (refreshButton) {
+            refreshButton.disabled = false;
+            refreshButton.textContent = "Refresh status";
         }
     }
 }
 
-function setHardwareBadge(label, state) {
-    const badge =
-        document.getElementById("hardwareConnectionBadge");
+/* 21. GENERATE TEMPORARY HARDWARE PAIRING CODE */
 
-    if (!badge) return;
+async function generateHardwarePairingCode() {
+    const button =
+        document.getElementById("generateHardwarePairingCode");
 
-    badge.replaceChildren();
+    const panel =
+        document.getElementById("hardwarePairingPanel");
 
-    const dot = document.createElement("span");
-    dot.className = "hardware-status-dot";
+    const codeElement =
+        document.getElementById("hardwarePairingCode");
 
-    const text = document.createElement("span");
-    text.textContent = label;
+    const countdownElement =
+        document.getElementById("hardwarePairingCountdown");
 
-    badge.append(dot, text);
-    badge.dataset.state = state;
-    badge.setAttribute("aria-live", "polite");
-}
+    if (hardwarePairingRequestInProgress) return;
 
-function formatHardwareLastSeen(value) {
-    if (!value) return "No activity yet";
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-        return String(value);
+    if (!currentUserId) {
+        setHardwareNotice(
+            "Please log in before generating a pairing code.",
+            "error"
+        );
+        return;
     }
 
-    return date.toLocaleString();
+    hardwarePairingRequestInProgress = true;
+
+    if (button) {
+        button.disabled = true;
+        button.textContent = "Generating...";
+    }
+
+    setHardwareNotice("Requesting a temporary pairing code...");
+
+    try {
+        const token = await getAccessToken();
+
+        if (!token) {
+            await handleSessionExpired();
+            return;
+        }
+
+        /*
+         * This endpoint must exist on your deployed backend.
+         * The frontend cannot create a valid pairing code by itself.
+         */
+
+        const response = await fetch(
+            BACKEND_URL + "/hardware/pairing-code",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + token
+                },
+                body: JSON.stringify({
+                    device_name: "ESP32-S3"
+                })
+            }
+        );
+
+        const data = await response.json().catch(() => ({}));
+
+        if (response.status === 401) {
+            await handleSessionExpired();
+            return;
+        }
+
+        if (!response.ok) {
+            let message =
+                data.detail ||
+                data.message ||
+                data.error ||
+                "";
+
+            if (Array.isArray(message)) {
+                message = message
+                    .map(item => item.msg || JSON.stringify(item))
+                    .join("; ");
+            }
+
+            if (!message) {
+                if (response.status === 404) {
+                    message =
+                        "The backend pairing endpoint was not found. Deploy the /hardware/pairing-code route first.";
+                } else if (response.status === 405) {
+                    message =
+                        "The pairing endpoint does not accept POST requests. Check the backend route.";
+                } else if (response.status === 429) {
+                    message =
+                        "Too many pairing requests. Wait a moment and try again.";
+                } else if (response.status >= 500) {
+                    message =
+                        "The backend encountered a server error. Check the Render logs.";
+                } else {
+                    message =
+                        "Pairing request failed with HTTP " + response.status + ".";
+                }
+            }
+
+            throw new Error(message);
+        }
+
+        /*
+         * Accept common response formats:
+         * { pairing_code: "123456" }
+         * { code: "123456" }
+         * { pairingCode: "123456" }
+         */
+
+        const code =
+            data.pairing_code ??
+            data.pairingCode ??
+            data.code ??
+            data.temporary_code ??
+            data.temporaryCode;
+
+        if (code === undefined || code === null || String(code).trim() === "") {
+            console.error(
+                "Pairing endpoint returned no recognized code field:",
+                data
+            );
+
+            throw new Error(
+                "The backend responded successfully but returned no pairing code. Check its JSON response format."
+            );
+        }
+
+        hardwarePairingCodeValue = String(code).trim();
+
+        let expiresIn = Number(
+            data.expires_in ??
+            data.expires_in_seconds ??
+            data.expiresIn ??
+            600
+        );
+
+        if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
+            expiresIn = 600;
+        }
+
+        if (data.expires_at) {
+            const parsedExpiry = new Date(data.expires_at).getTime();
+
+            hardwarePairingExpiresAt =
+                Number.isFinite(parsedExpiry)
+                    ? parsedExpiry
+                    : Date.now() + expiresIn * 1000;
+        } else {
+            hardwarePairingExpiresAt = Date.now() + expiresIn * 1000;
+        }
+
+        if (codeElement) {
+            codeElement.textContent = hardwarePairingCodeValue;
+        }
+
+        if (panel) panel.hidden = false;
+
+        if (countdownElement) {
+            countdownElement.textContent = "";
+        }
+
+        startHardwarePairingCountdown();
+
+        setHardwareNotice(
+            "Pairing code generated successfully. Enter it into your ESP32-S3 pairing process before it expires. Generating a code alone does not connect the device.",
+            "success"
+        );
+    } catch (error) {
+        console.error("Generate pairing code error:", error);
+
+        setHardwareNotice(
+            "Could not generate pairing code: " +
+            (error.message || "Unknown error"),
+            "error"
+        );
+    } finally {
+        hardwarePairingRequestInProgress = false;
+
+        if (button) {
+            button.disabled = false;
+            button.textContent = "Generate pairing code";
+        }
+    }
 }
 
-function formatHardwareComponentStatus(value) {
-    if (!value) return "Planned";
+/* 22. PAIRING CODE COUNTDOWN */
 
-    const normalized = String(value).toLowerCase();
+function startHardwarePairingCountdown() {
+    stopHardwarePairingCountdown();
 
-    if (normalized === "planned") return "Planned";
-    if (normalized === "connected") return "Connected";
-    if (normalized === "disconnected") return "Disconnected";
-    if (normalized === "not_connected") return "Not connected";
-    if (normalized === "error") return "Error";
+    const countdownElement =
+        document.getElementById("hardwarePairingCountdown");
 
-    return String(value);
+    const codeElement =
+        document.getElementById("hardwarePairingCode");
+
+    const panel =
+        document.getElementById("hardwarePairingPanel");
+
+    function updateCountdown() {
+        if (!hardwarePairingExpiresAt) return;
+
+        const remaining = Math.max(
+            0,
+            Math.ceil(
+                (hardwarePairingExpiresAt - Date.now()) / 1000
+            )
+        );
+
+        if (remaining <= 0) {
+            stopHardwarePairingCountdown();
+
+            hardwarePairingCodeValue = null;
+            hardwarePairingExpiresAt = null;
+
+            if (countdownElement) {
+                countdownElement.textContent =
+                    "This pairing code has expired. Generate a new one.";
+            }
+
+            if (codeElement) {
+                codeElement.textContent = "EXPIRED";
+            }
+
+            return;
+        }
+
+        const minutes = Math.floor(remaining / 60);
+        const seconds = remaining % 60;
+
+        if (countdownElement) {
+            countdownElement.textContent =
+                "Expires in " +
+                minutes +
+                ":" +
+                String(seconds).padStart(2, "0") +
+                ".";
+        }
+
+        if (panel) panel.hidden = false;
+    }
+
+    updateCountdown();
+
+    hardwarePairingExpiryTimer =
+        setInterval(updateCountdown, 1000);
 }
 
-/* 20. IMAGE */
+function stopHardwarePairingCountdown() {
+    if (hardwarePairingExpiryTimer !== null) {
+        clearInterval(hardwarePairingExpiryTimer);
+        hardwarePairingExpiryTimer = null;
+    }
+}
+
+/* 23. COPY PAIRING CODE */
+
+async function copyHardwarePairingCode() {
+    if (!hardwarePairingCodeValue) {
+        setHardwareNotice(
+            "There is no active pairing code. Generate a new one first.",
+            "error"
+        );
+        return;
+    }
+
+    try {
+        if (!navigator.clipboard?.writeText) {
+            throw new Error("Clipboard API is unavailable.");
+        }
+
+        await navigator.clipboard.writeText(
+            hardwarePairingCodeValue
+        );
+
+        setHardwareNotice(
+            "Pairing code copied. Treat it as a temporary secret.",
+            "success"
+        );
+    } catch (error) {
+        console.error("Copy pairing code error:", error);
+
+        setHardwareNotice(
+            "Clipboard access failed. Select the displayed code and copy it manually.",
+            "error"
+        );
+    }
+}
+
+/* 24. IMAGE UPLOAD */
 
 function selectImage() {
     if (!imageInput) return;
@@ -1041,20 +1371,90 @@ function selectImage() {
     imageInput.click();
 }
 
-function handleImageSelected(file) {
+async function handleImageSelected(file) {
     if (!file) return;
 
+    if (!file.type.startsWith("image/")) {
+        showUploadStatus("Please select a valid image.", "error");
+        if (imageInput) imageInput.value = "";
+        return;
+    }
+
+    if (!currentUserId) {
+        showUploadStatus(
+            "Please log in before uploading an image.",
+            "error"
+        );
+        if (imageInput) imageInput.value = "";
+        return;
+    }
+
     showUploadStatus(
-        "Image selected. Vision integration will be added next.",
+        "Image selected. Preparing preview...",
         "loading"
     );
 
-    if (imageInput) {
-        imageInput.value = "";
+    try {
+        const reader = new FileReader();
+
+        reader.onload = function () {
+            const dataUrl = reader.result;
+
+            addMessage("user", "[Image selected: " + file.name + "]");
+
+            showUploadStatus(
+                "Image preview is ready. Image analysis requires a supported backend vision endpoint.",
+                "success"
+            );
+
+            const preview = document.createElement("img");
+
+            preview.src = dataUrl;
+            preview.alt = "Selected image preview";
+            preview.style.maxWidth = "240px";
+            preview.style.maxHeight = "240px";
+            preview.style.objectFit = "contain";
+            preview.style.borderRadius = "10px";
+            preview.style.display = "block";
+            preview.style.marginTop = "8px";
+
+            if (chatbox) {
+                const messages = chatbox.querySelectorAll(".message");
+                const lastMessage = messages[messages.length - 1];
+                const content = lastMessage?.querySelector(".message-content");
+
+                if (content) content.appendChild(preview);
+            }
+
+            if (userInput) {
+                userInput.value =
+                    "Please analyze the image I selected: " +
+                    file.name +
+                    "\n\nThe image must be sent to a supported backend vision endpoint for analysis.";
+
+                autoResizeInput();
+                userInput.focus();
+            }
+        };
+
+        reader.onerror = function () {
+            showUploadStatus("Unable to read the selected image.", "error");
+        };
+
+        reader.readAsDataURL(file);
+    } catch (error) {
+        console.error("Image selection error:", error);
+
+        showUploadStatus(
+            "Unable to prepare the selected image.",
+            "error"
+        );
+    } finally {
+        if (imageInput) imageInput.value = "";
     }
 }
 
-/* 21. UPLOAD STATUS */
+/* 25. UPLOAD STATUS */
 
 function showUploadStatus(message, type = "") {
     if (!uploadStatus) return;
@@ -1062,478 +1462,22 @@ function showUploadStatus(message, type = "") {
     uploadStatus.textContent = message;
     uploadStatus.className = "upload-status";
 
-    if (type) {
-        uploadStatus.classList.add(type);
-    }
-
-    if (type === "success") {
-        setTimeout(function () {
-            if (uploadStatus) {
-                uploadStatus.textContent = "";
-            }
-        }, 5000);
-    }
+    if (type) uploadStatus.classList.add(type);
 }
 
-/* 22. ATTACHMENT MENU */
+/* 26. ATTACHMENT MENU */
 
 function toggleAttachmentMenu(forceState) {
     if (!attachmentMenu) return;
 
     if (typeof forceState === "boolean") {
-        attachmentMenu.classList.toggle("show", forceState);
-        return;
-    }
-
-    attachmentMenu.classList.toggle("show");
-}
-
-/* 23. NEW CHAT */
-
-async function newChat() {
-    currentMessages = [];
-    currentConversationId = null;
-
-    resetChatboxToWelcome();
-
-    if (userInput) {
-        userInput.value = "";
-        autoResizeInput();
-        userInput.focus();
-    }
-
-    showSection("chat");
-    closeSidebar();
-
-    try {
-        const token = await getAccessToken();
-
-        if (token) {
-            const response = await fetch(
-                BACKEND_URL + "/reset",
-                {
-                    method: "POST",
-                    headers: {
-                        "Authorization": "Bearer " + token
-                    }
-                }
-            );
-
-            if (!response.ok) {
-                console.warn(
-                    "Backend reset returned:",
-                    response.status
-                );
-            }
-        }
-    } catch (error) {
-        console.warn("Backend reset failed:", error);
+        attachmentMenu.classList.toggle("active", forceState);
+    } else {
+        attachmentMenu.classList.toggle("active");
     }
 }
 
-/* 24. CREATE CLOUD CONVERSATION */
-
-async function createConversation(firstMessage) {
-    if (!currentUserId) return false;
-
-    try {
-        const title =
-            firstMessage.substring(0, 45) ||
-            "New Conversation";
-
-        const nowIso = new Date().toISOString();
-
-        const { data, error } = await supabaseClient
-            .from("chat_conversations")
-            .insert({
-                user_id: currentUserId,
-                title: title,
-                messages: currentMessages,
-                updated_at: nowIso
-            })
-            .select("id")
-            .single();
-
-        if (error) {
-            console.error(
-                "Create conversation error:",
-                error
-            );
-            return false;
-        }
-
-        currentConversationId = data.id;
-
-        loadHistoryList();
-
-        return true;
-    } catch (error) {
-        console.error(
-            "Create conversation exception:",
-            error
-        );
-        return false;
-    }
-}
-
-/* 25. UPDATE CLOUD CONVERSATION */
-
-async function updateCloudConversation() {
-    if (!currentUserId || !currentConversationId) {
-        return false;
-    }
-
-    try {
-        const { error } = await supabaseClient
-            .from("chat_conversations")
-            .update({
-                messages: currentMessages,
-                updated_at: new Date().toISOString()
-            })
-            .eq("id", currentConversationId)
-            .eq("user_id", currentUserId);
-
-        if (error) {
-            console.error(
-                "Update conversation error:",
-                error
-            );
-            return false;
-        }
-
-        loadHistoryList();
-
-        return true;
-    } catch (error) {
-        console.error(
-            "Update conversation exception:",
-            error
-        );
-        return false;
-    }
-}
-
-/* 26. GET HISTORY */
-
-async function getHistories() {
-    if (!currentUserId) return [];
-
-    try {
-        const { data, error } = await supabaseClient
-            .from("chat_conversations")
-            .select(
-                "id, user_id, title, messages, created_at, updated_at"
-            )
-            .eq("user_id", currentUserId)
-            .order("updated_at", { ascending: false })
-            .limit(30);
-
-        if (error) {
-            console.error("Get history error:", error);
-            return [];
-        }
-
-        return data || [];
-    } catch (error) {
-        console.error(
-            "Get history exception:",
-            error
-        );
-        return [];
-    }
-}
-
-/* 27. LOAD HISTORY */
-
-async function loadHistoryList() {
-    const historyList =
-        document.getElementById("historyList");
-
-    if (!historyList || !currentUserId) return;
-
-    const userAtStart = currentUserId;
-    const histories = await getHistories();
-
-    if (currentUserId !== userAtStart) return;
-
-    if (histories.length === 0) {
-        historyList.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon">🕘</div>
-                <h3>No chat history yet</h3>
-                <p>Your conversations will appear here.</p>
-            </div>
-        `;
-        return;
-    }
-
-    historyList.innerHTML = "";
-
-    histories.forEach(function (conversation) {
-        const item = document.createElement("div");
-        item.className = "history-item";
-
-        const date = conversation.updated_at
-            ? new Date(
-                conversation.updated_at
-            ).toLocaleString()
-            : "";
-
-        item.innerHTML = `
-            <div class="history-item-main">
-                <div class="history-title">
-                    ${escapeHTML(
-                        conversation.title || "New Conversation"
-                    )}
-                </div>
-                <div class="history-date">
-                    ${escapeHTML(date)}
-                </div>
-            </div>
-            <button class="history-open-btn" type="button">
-                Open
-            </button>
-        `;
-
-        const openButton =
-            item.querySelector(".history-open-btn");
-
-        if (openButton) {
-            openButton.addEventListener(
-                "click",
-                function () {
-                    restoreConversation(conversation.id);
-                }
-            );
-        }
-
-        historyList.appendChild(item);
-    });
-}
-
-/* 28. RESTORE CONVERSATION */
-
-async function restoreConversation(id) {
-    if (!currentUserId) return;
-
-    try {
-        const { data, error } = await supabaseClient
-            .from("chat_conversations")
-            .select("id, title, messages")
-            .eq("id", id)
-            .eq("user_id", currentUserId)
-            .single();
-
-        if (error) {
-            console.error(
-                "Restore conversation error:",
-                error
-            );
-            return;
-        }
-
-        if (!data) return;
-
-        currentConversationId = data.id;
-
-        currentMessages = Array.isArray(data.messages)
-            ? [...data.messages]
-            : [];
-
-        if (chatbox) {
-            chatbox.innerHTML = "";
-        }
-
-        currentMessages.forEach(function (message) {
-            if (
-                message &&
-                message.role &&
-                typeof message.content !== "undefined"
-            ) {
-                addMessage(
-                    message.role,
-                    message.content
-                );
-            }
-        });
-
-        showSection("chat");
-
-        if (userInput) {
-            userInput.focus();
-        }
-    } catch (error) {
-        console.error(
-            "Restore conversation exception:",
-            error
-        );
-    }
-}
-
-/* 29. CLEAR HISTORY */
-
-async function clearChatHistory() {
-    if (!currentUserId) return;
-
-    const confirmed = confirm(
-        "Are you sure you want to permanently delete your chat history?"
-    );
-
-    if (!confirmed) return;
-
-    try {
-        const { error } = await supabaseClient
-            .from("chat_conversations")
-            .delete()
-            .eq("user_id", currentUserId);
-
-        if (error) {
-            console.error(
-                "Delete history error:",
-                error
-            );
-
-            alert("Could not clear chat history.");
-            return;
-        }
-
-        currentMessages = [];
-        currentConversationId = null;
-
-        resetChatboxToWelcome();
-
-        await loadHistoryList();
-    } catch (error) {
-        console.error(
-            "Delete history exception:",
-            error
-        );
-
-        alert(
-            "Something went wrong while clearing history."
-        );
-    }
-}
-
-/* 30. SECTION NAVIGATION */
-
-function showSection(section) {
-    const sections = {
-        chat: document.getElementById("chatSection"),
-        history: document.getElementById("historySection"),
-        documents: document.getElementById("documentsSection"),
-        vision: document.getElementById("visionSection"),
-        hardware: document.getElementById("hardwareSection"),
-        settings: document.getElementById("settingsSection")
-    };
-
-    Object.values(sections).forEach(function (element) {
-        if (element) {
-            element.classList.remove("active");
-        }
-    });
-
-    if (sections[section]) {
-        sections[section].classList.add("active");
-    }
-
-    if (section === "history") {
-        loadHistoryList();
-    }
-
-    if (section === "documents") {
-        loadDocumentsList();
-    }
-
-    if (section === "hardware") {
-        loadHardwareStatus();
-    }
-
-    const navItems =
-        document.querySelectorAll(".nav-item");
-
-    navItems.forEach(function (item) {
-        item.classList.remove("active");
-    });
-
-    const sectionIndex = {
-        chat: 0,
-        history: 1,
-        documents: 2,
-        vision: 3,
-        hardware: 4,
-        settings: 5
-    };
-
-    const index = sectionIndex[section];
-
-    if (index !== undefined && navItems[index]) {
-        navItems[index].classList.add("active");
-    }
-
-    const titles = {
-        chat: [
-            "AI Chat",
-            "Your personal AI assistant"
-        ],
-        history: [
-            "Chat History",
-            "Your previous conversations"
-        ],
-        documents: [
-            "Documents",
-            "Your AI knowledge base"
-        ],
-        vision: [
-            "Vision",
-            "Image understanding"
-        ],
-        hardware: [
-            "Hardware",
-            "Connect your AI assistant to hardware"
-        ],
-        settings: [
-            "Settings",
-            "Manage your assistant"
-        ]
-    };
-
-    const titleData = titles[section];
-
-    if (titleData) {
-        const pageTitle =
-            document.getElementById("pageTitle");
-
-        const pageSubtitle =
-            document.getElementById("pageSubtitle");
-
-        if (pageTitle) {
-            pageTitle.textContent = titleData[0];
-        }
-
-        if (pageSubtitle) {
-            pageSubtitle.textContent = titleData[1];
-        }
-    }
-
-    closeSidebar();
-}
-
-/* 31. SIDEBAR */
-
-function toggleSidebar() {
-    document.body.classList.toggle("sidebar-open");
-}
-
-function openSidebar() {
-    document.body.classList.add("sidebar-open");
-}
-
-function closeSidebar() {
-    document.body.classList.remove("sidebar-open");
-}
-
-/* 32. TEXTAREA */
+/* 27. CHAT INPUT RESIZE */
 
 function autoResizeInput() {
     if (!userInput) return;
@@ -1544,7 +1488,7 @@ function autoResizeInput() {
         Math.min(userInput.scrollHeight, 180) + "px";
 }
 
-/* 33. SCROLL */
+/* 28. SCROLL CHAT */
 
 function scrollToBottom() {
     if (!chatbox) return;
@@ -1552,37 +1496,298 @@ function scrollToBottom() {
     chatbox.scrollTop = chatbox.scrollHeight;
 }
 
-/* 34. ESCAPE HTML */
+/* 29. NEW CHAT */
 
-function escapeHTML(value) {
-    const div = document.createElement("div");
+function newChat() {
+    currentConversationId = null;
+    currentMessages = [];
 
-    div.textContent =
-        value == null ? "" : String(value);
+    resetChatboxToWelcome();
 
-    return div.innerHTML;
+    if (userInput) {
+        userInput.value = "";
+        autoResizeInput();
+        userInput.focus();
+    }
+
+    showSection("chat");
 }
 
-/* 35. CLOSE ATTACHMENT MENU */
+/* 30. NAVIGATION */
 
-document.addEventListener("click", function (event) {
-    if (!attachmentMenu) return;
+function showSection(sectionName) {
+    const sections = [
+        "chat",
+        "history",
+        "documents",
+        "vision",
+        "hardware",
+        "settings"
+    ];
 
-    const clickedInside =
-        attachmentMenu.contains(event.target);
+    sections.forEach(function (name) {
+        const section = document.getElementById(name + "Section");
 
-    const clickedButton =
-        event.target.closest(".attachment-btn");
+        if (section) {
+            section.classList.toggle("active", name === sectionName);
+        }
+    });
 
-    if (!clickedInside && !clickedButton) {
-        attachmentMenu.classList.remove("show");
+    document.querySelectorAll(".nav-item").forEach(function (button) {
+        const label = button.textContent.trim().toLowerCase();
+
+        const active =
+            (sectionName === "chat" && label.includes("chat") && !label.includes("history")) ||
+            (sectionName === "history" && label.includes("history")) ||
+            (sectionName === "documents" && label.includes("documents")) ||
+            (sectionName === "hardware" && label.includes("hardware")) ||
+            (sectionName === "vision" && label.includes("vision")) ||
+            (sectionName === "settings" && label.includes("settings"));
+
+        button.classList.toggle("active", active);
+    });
+
+    const titles = {
+        chat: ["AI Chat", "Your personal AI assistant"],
+        history: ["Chat History", "Your previous conversations"],
+        documents: ["Documents", "Your PDF knowledge base"],
+        vision: ["Vision", "Image understanding"],
+        hardware: ["Hardware", "Connect your ESP32-S3"],
+        settings: ["Settings", "Manage your assistant"]
+    };
+
+    const heading = titles[sectionName];
+
+    const pageTitle = document.getElementById("pageTitle");
+    const pageSubtitle = document.getElementById("pageSubtitle");
+
+    if (heading && pageTitle) pageTitle.textContent = heading[0];
+    if (heading && pageSubtitle) pageSubtitle.textContent = heading[1];
+
+    if (sectionName === "history") loadHistoryList();
+    if (sectionName === "documents") loadDocumentsList();
+    if (sectionName === "hardware") loadHardwareStatus();
+
+    closeSidebar();
+}
+
+/* 31. MOBILE SIDEBAR */
+
+function toggleSidebar() {
+    document.body.classList.toggle("sidebar-open");
+
+    if (sidebarOverlay) {
+        sidebarOverlay.classList.toggle(
+            "active",
+            document.body.classList.contains("sidebar-open")
+        );
+    }
+}
+
+function closeSidebar() {
+    document.body.classList.remove("sidebar-open");
+
+    if (sidebarOverlay) sidebarOverlay.classList.remove("active");
+}
+
+/* 32. ESCAPE HTML */
+
+function escapeHTML(value) {
+    const element = document.createElement("div");
+
+    element.textContent =
+        value === null || value === undefined ? "" : String(value);
+
+    return element.innerHTML;
+}
+
+/* 33. CONVERSATION HISTORY */
+
+async function createConversation(firstMessage) {
+    if (!currentUserId) return;
+
+    try {
+        const result = await supabaseClient
+            .from("conversations")
+            .insert({
+                user_id: currentUserId,
+                title: String(firstMessage).slice(0, 80),
+                messages: currentMessages
+            })
+            .select()
+            .single();
+
+        if (result.error) {
+            console.warn(
+                "Cloud conversation was not saved:",
+                result.error.message
+            );
+            return;
+        }
+
+        if (result.data) {
+            currentConversationId = result.data.id;
+        }
+
+        loadHistoryList();
+    } catch (error) {
+        console.error("Create conversation error:", error);
+    }
+}
+
+async function updateCloudConversation() {
+    if (!currentUserId || !currentConversationId) return;
+
+    try {
+        const result = await supabaseClient
+            .from("conversations")
+            .update({ messages: currentMessages })
+            .eq("id", currentConversationId)
+            .eq("user_id", currentUserId);
+
+        if (result.error) {
+            console.warn(
+                "Conversation update failed:",
+                result.error.message
+            );
+        }
+    } catch (error) {
+        console.error("Update conversation error:", error);
+    }
+}
+
+async function loadHistoryList() {
+    const historyList = document.getElementById("historyList");
+
+    if (!historyList || !currentUserId) return;
+
+    const userAtStart = currentUserId;
+
+    historyList.textContent = "Loading history...";
+
+    try {
+        const result = await supabaseClient
+            .from("conversations")
+            .select("id, title, messages, created_at")
+            .eq("user_id", userAtStart)
+            .order("created_at", { ascending: false })
+            .limit(50);
+
+        if (result.error) throw result.error;
+        if (currentUserId !== userAtStart) return;
+
+        const conversations = result.data || [];
+
+        historyList.innerHTML = "";
+
+        if (!conversations.length) {
+            historyList.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">🕘</div>
+                    <h3>No conversations yet</h3>
+                    <p>Your saved conversations will appear here.</p>
+                </div>
+            `;
+            return;
+        }
+
+        conversations.forEach(function (conversation) {
+            const item = document.createElement("div");
+            item.className = "history-item";
+
+            const title = document.createElement("div");
+            title.className = "history-title";
+            title.textContent = conversation.title || "Untitled conversation";
+
+            const date = document.createElement("div");
+            date.className = "history-date";
+            date.textContent = formatHardwareLastSeen(conversation.created_at);
+
+            item.append(title, date);
+
+            item.addEventListener("click", function () {
+                openConversation(conversation);
+            });
+
+            historyList.appendChild(item);
+        });
+    } catch (error) {
+        console.error("Load history error:", error);
+
+        historyList.textContent =
+            "History could not be loaded. Check your Supabase table and access policies.";
+    }
+}
+
+function openConversation(conversation) {
+    if (!conversation) return;
+
+    currentConversationId = conversation.id;
+
+    currentMessages = Array.isArray(conversation.messages)
+        ? conversation.messages
+        : [];
+
+    if (chatbox) chatbox.innerHTML = "";
+
+    currentMessages.forEach(function (message) {
+        if (!message?.role) return;
+        addMessage(message.role, message.content || "");
+    });
+
+    showSection("chat");
+}
+
+async function clearChatHistory() {
+    if (!currentUserId) return;
+
+    if (!confirm("Delete all saved conversations? This cannot be undone.")) {
+        return;
+    }
+
+    try {
+        const result = await supabaseClient
+            .from("conversations")
+            .delete()
+            .eq("user_id", currentUserId);
+
+        if (result.error) throw result.error;
+
+        currentConversationId = null;
+        currentMessages = [];
+
+        await loadHistoryList();
+
+        alert("Saved chat history cleared.");
+    } catch (error) {
+        console.error("Clear history error:", error);
+
+        alert(
+            "Could not clear history. Check your database access policies."
+        );
+    }
+}
+
+/* 34. AUTH STATE LISTENER */
+
+supabaseClient.auth.onAuthStateChange(function (event, session) {
+    if (event === "SIGNED_OUT") {
+        showLoginScreen();
+        return;
+    }
+
+    if (
+        session?.user &&
+        (
+            event === "SIGNED_IN" ||
+            event === "INITIAL_SESSION" ||
+            event === "TOKEN_REFRESHED"
+        )
+    ) {
+        showApp(session.user);
     }
 });
 
-/* 36. ESCAPE KEY */
-
-document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape") {
-        closeSidebar();
-    }
-});
+/* =========================================================
+   END OF SCRIPT
+   ========================================================= */
