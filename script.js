@@ -1603,12 +1603,13 @@ function escapeHTML(value) {
 
 /* 33. CONVERSATION HISTORY */
 
+
 async function createConversation(firstMessage) {
     if (!currentUserId) return;
 
     try {
         const result = await supabaseClient
-            .from("conversations")
+            .from("chat_conversations")
             .insert({
                 user_id: currentUserId,
                 title: String(firstMessage).slice(0, 80),
@@ -1629,7 +1630,7 @@ async function createConversation(firstMessage) {
             currentConversationId = result.data.id;
         }
 
-        loadHistoryList();
+        await loadHistoryList();
     } catch (error) {
         console.error("Create conversation error:", error);
     }
@@ -1640,7 +1641,7 @@ async function updateCloudConversation() {
 
     try {
         const result = await supabaseClient
-            .from("conversations")
+            .from("chat_conversations")
             .update({ messages: currentMessages })
             .eq("id", currentConversationId)
             .eq("user_id", currentUserId);
@@ -1667,7 +1668,7 @@ async function loadHistoryList() {
 
     try {
         const result = await supabaseClient
-            .from("conversations")
+            .from("chat_conversations")
             .select("id, title, messages, created_at")
             .eq("user_id", userAtStart)
             .order("created_at", { ascending: false })
@@ -1697,11 +1698,13 @@ async function loadHistoryList() {
 
             const title = document.createElement("div");
             title.className = "history-title";
-            title.textContent = conversation.title || "Untitled conversation";
+            title.textContent =
+                conversation.title || "Untitled conversation";
 
             const date = document.createElement("div");
             date.className = "history-date";
-            date.textContent = formatHardwareLastSeen(conversation.created_at);
+            date.textContent =
+                formatHardwareLastSeen(conversation.created_at);
 
             item.append(title, date);
 
@@ -1747,7 +1750,7 @@ async function clearChatHistory() {
 
     try {
         const result = await supabaseClient
-            .from("conversations")
+            .from("chat_conversations")
             .delete()
             .eq("user_id", currentUserId);
 
@@ -1768,25 +1771,6 @@ async function clearChatHistory() {
     }
 }
 
-/* 34. AUTH STATE LISTENER */
-
-supabaseClient.auth.onAuthStateChange(function (event, session) {
-    if (event === "SIGNED_OUT") {
-        showLoginScreen();
-        return;
-    }
-
-    if (
-        session?.user &&
-        (
-            event === "SIGNED_IN" ||
-            event === "INITIAL_SESSION" ||
-            event === "TOKEN_REFRESHED"
-        )
-    ) {
-        showApp(session.user);
-    }
-});
 
 /* =========================================================
    END OF SCRIPT
