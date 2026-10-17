@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 
@@ -298,6 +297,67 @@
             .auth-title {
                 font-size: 22px;
             }
+        }
+
+        .hardware-pairing-controls,
+        .hardware-pairing-code-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .hardware-action-button {
+            min-height: 42px;
+            padding: 10px 15px;
+            border: 1px solid rgba(0, 229, 255, 0.45);
+            border-radius: 9px;
+            background: rgba(0, 229, 255, 0.12);
+            color: var(--text-primary, #eaf6ff);
+            font: inherit;
+            font-size: 13px;
+            font-weight: 650;
+            cursor: pointer;
+        }
+
+        .hardware-action-button:hover:not(:disabled) {
+            background: rgba(0, 229, 255, 0.2);
+        }
+
+        .hardware-action-button:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        .hardware-secondary-button {
+            border-color: var(--hardware-border);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .hardware-pairing-panel {
+            margin-top: 16px;
+            padding: 16px;
+            border: 1px solid var(--hardware-border);
+            border-radius: 12px;
+            background: rgba(0, 229, 255, 0.04);
+        }
+
+        .hardware-pairing-code-row {
+            justify-content: space-between;
+            margin-top: 8px;
+        }
+
+        #hardwarePairingCode {
+            color: var(--hardware-green);
+            font-size: clamp(24px, 4vw, 34px);
+            font-weight: 800;
+            letter-spacing: 0.18em;
+            overflow-wrap: anywhere;
+        }
+
+        .hardware-component-statuses {
+            margin-top: 12px;
         }
 
         /* =========================================================
@@ -689,7 +749,7 @@
                 </button>
             </form>
 
-           <form id="signupForm" class="auth-form">
+            <form id="signupForm" class="auth-form">
                 <label class="auth-label" for="signupEmail">Email</label>
                 <input
                     id="signupEmail"
@@ -987,7 +1047,6 @@
 
             <!-- =================================================
                  HARDWARE SECTION
-                 Updated dashboard UI — no live connection yet
                  ================================================= -->
 
             <section id="hardwareSection" class="content-section">
@@ -1029,19 +1088,75 @@
 
                             <div class="hardware-detail">
                                 <span>Backend verification</span>
-                                <strong>Not verified</strong>
+                                <strong id="hardwareBackendStatus">Not verified</strong>
                             </div>
 
                             <div class="hardware-detail">
                                 <span>Last activity</span>
-                                <strong>—</strong>
+                                <strong id="hardwareLastSeen">No activity yet</strong>
                             </div>
                         </div>
 
-                        <p class="hardware-notice">
-                            No device connection has been verified yet.
-                            Secure pairing and live status will be enabled
-                            after backend device authentication is implemented.
+                        <div class="hardware-status-details hardware-component-statuses">
+                            <div class="hardware-detail">
+                                <span>Microphone</span>
+                                <strong id="hardwareMicrophoneStatus">Planned</strong>
+                            </div>
+
+                            <div class="hardware-detail">
+                                <span>Audio output</span>
+                                <strong id="hardwareAudioStatus">Planned</strong>
+                            </div>
+                        </div>
+
+                        <div class="hardware-pairing-controls">
+                            <button
+                                type="button"
+                                id="generateHardwarePairingCode"
+                                class="hardware-action-button"
+                            >
+                                Generate pairing code
+                            </button>
+
+                            <button
+                                type="button"
+                                id="refreshHardwareStatus"
+                                class="hardware-action-button hardware-secondary-button"
+                            >
+                                Refresh status
+                            </button>
+                        </div>
+
+                        <div
+                            id="hardwarePairingPanel"
+                            class="hardware-pairing-panel"
+                            hidden
+                        >
+                            <span class="hardware-eyebrow">TEMPORARY PAIRING CODE</span>
+
+                            <div class="hardware-pairing-code-row">
+                                <code id="hardwarePairingCode">------</code>
+
+                                <button
+                                    type="button"
+                                    id="copyHardwarePairingCode"
+                                    class="hardware-action-button hardware-secondary-button"
+                                >
+                                    Copy code
+                                </button>
+                            </div>
+
+                            <p
+                                id="hardwarePairingCountdown"
+                                class="hardware-card-description"
+                                aria-live="polite"
+                            ></p>
+                        </div>
+
+                        <p class="hardware-notice" id="hardwareNotice" aria-live="polite">
+                            Generate a temporary code while logged in. The ESP32-S3 firmware
+                            must submit this code to the backend to complete pairing; generating
+                            a code alone does not connect the device.
                         </p>
                     </div>
 
